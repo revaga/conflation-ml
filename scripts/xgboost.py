@@ -1,12 +1,14 @@
 """
 XGBoost-style Gradient Boosted Classifier for Places Attribute Conflation
 =====================================================================================
-Reads processed data/phase1_processed.parquet, leverages pre-computed 
-similarity scores, engineers advanced features, and trains a 
+Uses data/golden_dataset_100.parquet as the truth/golden set for training labels.
+Uses the broader data/project_a_samples.parquet (via phase1_processed) for input,
+excluding the first 100 rows from the broader set so the golden set is not duplicated.
+Leverages pre-computed similarity scores, engineers advanced features, and trains a
 gradient-boosted decision-tree classifier.
 
 Run from project root:
-    python scripts/phase5_xgboost.py
+    python scripts/xgboost.py
 """
 
 import json
@@ -26,8 +28,12 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+# Processed version of project_a_samples (phase1 adds norm_*, addr_similarity, etc.)
 INPUT_PATH = "data/phase1_processed.parquet"
-GOLDEN_PATH = "data/golden_labels.csv"
+# Truth/golden labels: first 100 rows of project_a_samples, human-labeled (golden_label: base/alt/both/none)
+GOLDEN_PATH = "data/golden_dataset_100.parquet"
+# First N rows of project_a_samples are the golden set; broader input is the rest
+GOLDEN_NROWS = 100
 OUTPUT_PATH = "data/xgboost_results.parquet"
 LABEL_COL = "final_label"
 RANDOM_STATE = 42
@@ -206,20 +212,30 @@ def apply_labels(df: pd.DataFrame) -> pd.DataFrame:
     df.loc[cond_pos, LABEL_COL] = 1.0
     df.loc[cond_neg & ~cond_pos, LABEL_COL] = 0.0
 
-    # 2. Overwrite with Golden Labels (The Ground Truth)
+    # 2. Overwrite with Golden Labels (The Ground Truth) from golden_dataset_100.parquet
     if os.path.exists(GOLDEN_PATH):
         print(f"  Integrating manual labels from {GOLDEN_PATH} ...")
-        golden = pd.read_csv(GOLDEN_PATH)
-        # Create mapping of id -> label
-        label_map = dict(zip(golden['id'], golden['label']))
-        
-        # Apply labels (will overwrite heuristics)
-        df['is_golden'] = df['id'].isin(label_map.keys())
-        for idx, row in df[df['is_golden']].iterrows():
-            df.at[idx, LABEL_COL] = label_map[row['id']]
-        
-        n_gold = df['is_golden'].sum()
-        print(f"  Applied {n_gold} human-verified labels.")
+        golden = pd.read_parquet(GOLDEN_PATH)
+        # Map golden_label (base/alt/both/none) -> binary: base=0 (keep base), alt/both=1 (use match), none=drop
+        def golden_to_binary(val):
+            if pd.isna(val) or val is None or str(val).strip().lower() in ("none", ""):
+                return np.nan
+            v = str(val).strip().lower()
+            if v == "base":
+                return 0.0
+            if v in ("alt", "match", "both"):
+                return 1.0
+            return np.nan
+        golden[LABEL_COL] = golden["golden_label"].apply(golden_to_binary)
+        # Keep only rows with a valid binary label for the map
+        golden_labeled = golden.dropna(subset=[LABEL_COL])
+        label_map = dict(zip(golden_labeled["id"], golden_labeled[LABEL_COL]))
+        # Apply labels (will overwrite heuristics) for any row whose id is in the golden set
+        df["is_golden"] = df["id"].isin(label_map.keys())
+        for idx, row in df[df["is_golden"]].iterrows():
+            df.at[idx, LABEL_COL] = label_map[row["id"]]
+        n_gold = df["is_golden"].sum()
+        print(f"  Applied {n_gold} human-verified labels from golden_dataset_100.parquet.")
 
     n_pos = (df[LABEL_COL] == 1).sum()
     n_neg = (df[LABEL_COL] == 0).sum()
@@ -280,7 +296,11 @@ class GradientBoostedClassifier:
 
 def main():
     print("="*60 + "\nPHASE 5 — XGBoost-style Classifier (v3: Existence vs Completeness)\n" + "="*60)
-    df = pd.read_parquet(INPUT_PATH)
+    # INPUT_PATH is phase1_processed (built from project_a_samples). Exclude first GOLDEN_NROWS
+    # (those are the golden set); use only the broader input for training and prediction.
+    full_df = pd.read_parquet(INPUT_PATH)
+    df = full_df.iloc[GOLDEN_NROWS:].reset_index(drop=True)
+    print(f"  Loaded {len(df)} rows (broader input only; first {GOLDEN_NROWS} rows excluded).")
     df = engineer_features(df)
     df = apply_labels(df)
 
@@ -288,25 +308,40 @@ def main():
     X = labeled[FEATURE_COLS].fillna(0).values
     y = labeled[LABEL_COL].astype(int).values
 
-    # Simple 80/20 train/test
-    indices = np.arange(len(y)); np.random.seed(42); np.random.shuffle(indices)
+    n_labeled = len(labeled)
+    n_pos = int((y == 1).sum())
+    n_neg = int((y == 0).sum())
+    print(f"\n  Labeled pool: {n_labeled} rows (positive: {n_pos}, negative: {n_neg})")
+
+    # Simple 80/20 train/validation
+    indices = np.arange(len(y))
+    np.random.seed(RANDOM_STATE)
+    np.random.shuffle(indices)
     split = int(0.8 * len(y))
-    train_idx, test_idx = indices[:split], indices[split:]
-    
+    train_idx, val_idx = indices[:split], indices[split:]
+    n_train, n_val = len(train_idx), len(val_idx)
+    print(f"  Train size: {n_train}  |  Validation size: {n_val}")
+
     model = GradientBoostedClassifier()
     print("\n  Training model on combined labels ...")
     model.fit(X[train_idx], y[train_idx])
 
-    # Evaluate
-    y_pred = (model.predict_proba(X[test_idx]) >= 0.5).astype(int)
-    acc = (y_pred == y[test_idx]).sum() / len(y_pred)
-    print(f"\n  Acccuracy on Test Set: {acc:.4%}")
+    # Accuracy on training set
+    y_pred_train = (model.predict_proba(X[train_idx]) >= 0.5).astype(int)
+    acc_train = (y_pred_train == y[train_idx]).sum() / len(y_pred_train)
+    print(f"\n  Accuracy on Training Set: {acc_train:.4%} (n={n_train})")
+
+    # Accuracy on validation set
+    y_pred_val = (model.predict_proba(X[val_idx]) >= 0.5).astype(int)
+    acc_val = (y_pred_val == y[val_idx]).sum() / len(y_pred_val)
+    print(f"  Accuracy on Validation Set: {acc_val:.4%} (n={n_val})")
 
     # Feature usage distribution (how often each feature was used in splits)
     feature_usage = np.zeros(len(FEATURE_COLS), dtype=np.int64)
     for tree in model.trees:
         feature_usage[tree.feature_idx] += 1
     feature_prob = feature_usage / len(model.trees)
+    print("")
 
     print("\n  Feature usage distribution (fraction of trees using each feature):")
     print("  " + "-" * 60)

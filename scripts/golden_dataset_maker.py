@@ -10,6 +10,7 @@ from website_validator import verify_website
 # Paths when run as script (project root = parent of scripts/)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_PATH = PROJECT_ROOT / "data" / "project_a_samples.parquet"
+PHASE1_PATH = PROJECT_ROOT / "data" / "phase1_processed.parquet"
 OUTPUT_PATH = PROJECT_ROOT / "data" / "golden_dataset_100.parquet"
 NUM_RECORDS = 100
 SAVE_EVERY_N = 5
@@ -78,21 +79,6 @@ def generate_golden_label(row):
             return "US"
         return None
 
-    def check_phone_superiority(base_phone, alt_phone):
-        """
-        Auto: both valid → 'both', neither valid → 'none', else base/alt.
-        +1 only when one side wins (base or alt).
-        """
-        base_valid, _ = validate_phone_number(base_phone)
-        alt_valid, _ = validate_phone_number(alt_phone)
-        if not base_valid and not alt_valid:
-            return None  # → bookkeeping "none"
-        if base_valid and not alt_valid:
-            return "base"
-        if not base_valid and alt_valid:
-            return "alt"
-        return "both"  # both valid
-
     # STEP 2 — Evaluate each core attribute (phones, websites, addresses, categories, name)
     # Place name — human selection (or auto "both" if same)
     def _name_display(val):
@@ -118,32 +104,49 @@ def generate_golden_label(row):
     elif name_winner == 'alt':
         alt_score += 1
 
-    # 📞 Phones — always print values and auto outcome; if invalid, try with country from address and store in new column
-    # Column fallbacks: phase1 = norm_base_phone / norm_conflated_phone; raw = base_phones / phones
+    # 📞 Phones — 1) validate with phonenumber_validator; 2) if invalid, try country code; 3) both valid→both, none→none, one valid→that one
     def _first_str(val):
         if isinstance(val, list) and len(val) > 0:
             return str(val[0]).strip() or None
         return val
-    base_phone = _first_str(row.get('base_phone') or row.get('norm_base_phone') or row.get('base_phones'))
-    alt_phone = _first_str(row.get('alt_phone') or row.get('norm_conflated_phone') or row.get('phones'))
+
+    def _phone_str(val):
+        """Coerce to string for phone processing; None/NaN/empty -> None."""
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return None
+        s = str(val).strip()
+        return s if s and s.lower() not in ("nan", "none") else None
+
+    base_phone = _phone_str(_first_str(row.get('base_phone') or row.get('norm_base_phone') or row.get('base_phones')))
+    alt_phone = _phone_str(_first_str(row.get('alt_phone') or row.get('norm_conflated_phone') or row.get('phones')))
     base_addr_for_region = row.get('base_address') or row.get('norm_base_addr') or row.get('base_addresses')
     alt_addr_for_region = row.get('alt_address') or row.get('norm_conflated_addr') or row.get('addresses')
-    if base_phone and not validate_phone_number(base_phone)[0]:
-        region = _region_from_address(base_addr_for_region) or "US"
-        ok, e164 = try_with_region(base_phone, region)
+    base_region = _region_from_address(base_addr_for_region) or "US"
+    alt_region = _region_from_address(alt_addr_for_region) or "US"
+
+    # Step 1: validate with phonenumber_validator
+    base_valid = validate_phone_number(base_phone)[0] if base_phone else False
+    alt_valid = validate_phone_number(alt_phone)[0] if alt_phone else False
+    # Step 2: if invalid, try country code; store corrected E164 and treat as valid for decision
+    if base_phone and not base_valid:
+        ok, e164 = try_with_region(base_phone, base_region)
         if ok:
             corrected_phones["base_phone_with_country"] = e164
-    if alt_phone and not validate_phone_number(alt_phone)[0]:
-        region = _region_from_address(alt_addr_for_region) or "US"
-        ok, e164 = try_with_region(alt_phone, region)
+            base_valid = True
+    if alt_phone and not alt_valid:
+        ok, e164 = try_with_region(alt_phone, alt_region)
         if ok:
             corrected_phones["alt_phone_with_country"] = e164
-    phone_winner = check_phone_superiority(base_phone, alt_phone)
-    # If validation gave no winner but both values are the same, mark as both
-    if phone_winner is None and base_phone and alt_phone:
-        _norm_phone = lambda v: re.sub(r"\D", "", str(v).strip()) if v and str(v).strip() else ""
-        if _norm_phone(base_phone) == _norm_phone(alt_phone):
-            phone_winner = "both"
+            alt_valid = True
+    # Step 3: both valid → both, none valid → none, only one valid → that one
+    if base_valid and alt_valid:
+        phone_winner = "both"
+    elif not base_valid and not alt_valid:
+        phone_winner = None  # → "none"
+    elif base_valid:
+        phone_winner = "base"
+    else:
+        phone_winner = "alt"
     _phone_show = lambda v: "(empty)" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v)
     print("\n--- Phone ---")
     print(f"  base:  {_phone_show(base_phone)}")
@@ -173,11 +176,6 @@ def generate_golden_label(row):
     base_web = _first_str(row.get('base_web') or row.get('norm_base_website') or row.get('base_websites'))
     alt_web = _first_str(row.get('alt_web') or row.get('norm_conflated_website') or row.get('websites'))
     web_winner = check_web_superiority(base_web, alt_web)
-    # If validation gave no winner but both URLs are the same, mark as both (before human check)
-    if web_winner is None and base_web and alt_web:
-        _norm_web = lambda v: str(v).strip().lower().rstrip("/") if v and str(v).strip() else ""
-        if _norm_web(base_web) == _norm_web(alt_web):
-            web_winner = "both"
     _web_show = lambda v: "(empty)" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v)
     if web_winner is None:
         print("\n  (Website: neither validated automatically — please choose)")
@@ -237,11 +235,11 @@ def generate_golden_label(row):
     alt_list = _addr_to_list(alt_addr_raw)
     addr_winner = None
     if base_list or alt_list:
-        if base_list == alt_list:
+        if set(base_list) == set(alt_list):
             print("\n--- Address ---")
             print(f"  base:  {_addr_show(base_addr_raw)}")
             print(f"  match: {_addr_show(alt_addr_raw)}")
-            print("  Same → both")
+            print("  Same (any order) → both")
             addr_winner = "both"
         elif len(base_list) > len(alt_list) and set(alt_list) <= set(base_list):
             print("\n--- Address ---")
@@ -335,6 +333,22 @@ if __name__ == "__main__":
 
     df = pd.read_parquet(DATA_PATH)
     subset = df.head(NUM_RECORDS).copy()
+
+    # Add missing columns from project_a_samples (subset is from it; ensures we have all columns if source ever changes)
+    samples_extra = [c for c in df.columns if c not in subset.columns]
+    if samples_extra:
+        samples_by_id = df.set_index("id")
+        for c in samples_extra:
+            subset[c] = subset["id"].map(samples_by_id[c])
+
+    # Add missing columns from phase1_processed (norm_*, *_similarity, etc.) so output has them
+    if PHASE1_PATH.exists():
+        phase1 = pd.read_parquet(PHASE1_PATH)
+        extra_cols = [c for c in phase1.columns if c not in subset.columns]
+        if extra_cols:
+            phase1_by_id = phase1.set_index("id")
+            for c in extra_cols:
+                subset[c] = subset["id"].map(phase1_by_id[c])
 
     # Resume: load already-labeled rows if output exists
     n_done = 0

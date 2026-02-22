@@ -9,8 +9,10 @@ def validate_phone_number(phone_number: str) -> tuple[bool, str]:
     """
     Given a phone number, return a tuple of (bool, str) where the bool is True if the phone number is valid
     and False otherwise. The str is the country/region code of the phone number (e.g. "US", "GB").
+    Accepts str, int, or float; converts to string before parsing.
     """
-    if not phone_number or not str(phone_number).strip():
+    phone_number = str(phone_number).strip() if phone_number is not None else ""
+    if not phone_number or phone_number.lower() in ("nan", "none"):
         return False, "Empty or whitespace"
     try:
         parsed = phonenumbers.parse(phone_number, None)
@@ -22,12 +24,31 @@ def validate_phone_number(phone_number: str) -> tuple[bool, str]:
         return False, f"Parse error: {str(e)}"
 
 
+def to_e164_if_valid(phone_number, region=None):
+    """
+    If the number is valid (with optional default region), return E.164 string; else None.
+    Useful for comparing two numbers (e.g. one with country code, one without).
+    """
+    phone_number = str(phone_number).strip() if phone_number is not None else ""
+    if not phone_number or phone_number.lower() in ("nan", "none"):
+        return None
+    try:
+        parsed = phonenumbers.parse(phone_number, region)
+        if phonenumbers.is_valid_number(parsed):
+            return phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
+        return None
+    except NumberParseException:
+        return None
+
+
 def try_with_region(phone_number: str, region_code: str) -> tuple[bool, str | None]:
     """
     Try parsing the phone number with the given region (e.g. "US", "GB").
     If valid, return (True, e164_string); otherwise (False, None).
+    Accepts str, int, or float for phone_number; converts to string before parsing.
     """
-    if not phone_number or not str(phone_number).strip() or not region_code:
+    phone_number = str(phone_number).strip() if phone_number is not None else ""
+    if not phone_number or phone_number.lower() in ("nan", "none") or not region_code:
         return False, None
     try:
         parsed = phonenumbers.parse(phone_number, region_code)
