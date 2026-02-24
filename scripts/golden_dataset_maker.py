@@ -27,9 +27,9 @@ def _prompt_superiority(label, base_display, alt_display):
     """
     print(f"\n--- {label} ---")
     print(f"  base:  {base_display}")
-    print(f"  match: {alt_display}")
+    print(f"  alt:  {alt_display}")
     while True:
-        choice = input("Which is better? (base / match / both / none): ").strip().lower()
+        choice = input("Which is better? (base / alt / both / none): ").strip().lower()
         if choice in ("base", "b"):
             return "base"
         if choice in ("match", "m", "alt", "a"):
@@ -38,7 +38,7 @@ def _prompt_superiority(label, base_display, alt_display):
             return "both"
         if choice in ("none", "n", "skip", "s", ""):
             return None
-        print("Please enter: base, match, both, or none")
+        print("Please enter: base, alt, both, or none")
 
 
 def _winner_str(w):
@@ -49,9 +49,9 @@ def _winner_str(w):
 def generate_golden_label(row):
     """
     Golden label per spec: base / alt / abstain from comparing core attributes.
-    Every attribute is recorded as one of: base, match, both, none.
-    Name, address, category: human choice (base / match / both / none).
-    Phone, website: automatic (both valid → both, neither valid → none, else base or match).
+    Every attribute is recorded as one of: base, alt, both, none.
+    Name, address, category: human choice (base / alt / both / none).
+    Phone, website: automatic (both valid → both, neither valid → none, else base or alt).
     +2 margin rule; special edge case when one has 0 valid and the other has >= 2.
     Returns (label, bookkeeping_dict, corrected_phones_dict).
     corrected_phones_dict has base_phone_with_country, alt_phone_with_country when we fixed with country code.
@@ -93,7 +93,7 @@ def generate_golden_label(row):
     if base_name_display == alt_name_display:
         print("\n--- Place name ---")
         print(f"  base:  {base_name_display}")
-        print(f"  match: {alt_name_display}")
+        print(f"  alt:  {alt_name_display}")
         print("  Same → both")
         name_winner = "both"
     else:
@@ -150,7 +150,7 @@ def generate_golden_label(row):
     _phone_show = lambda v: "(empty)" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v)
     print("\n--- Phone ---")
     print(f"  base:  {_phone_show(base_phone)}")
-    print(f"  match: {_phone_show(alt_phone)}")
+    print(f"  alt:  {_phone_show(alt_phone)}")
     print(f"  → {_winner_str(phone_winner)}")
     bookkeeping["phone"] = _winner_str(phone_winner)
     if phone_winner == 'base':
@@ -183,7 +183,7 @@ def generate_golden_label(row):
     else:
         print("\n--- Website ---")
         print(f"  base:  {_web_show(base_web)}")
-        print(f"  match: {_web_show(alt_web)}")
+        print(f"  alt:  {_web_show(alt_web)}")
         print(f"  → {_winner_str(web_winner)}")
     bookkeeping["web"] = _winner_str(web_winner)
     if web_winner == 'base':
@@ -238,20 +238,20 @@ def generate_golden_label(row):
         if set(base_list) == set(alt_list):
             print("\n--- Address ---")
             print(f"  base:  {_addr_show(base_addr_raw)}")
-            print(f"  match: {_addr_show(alt_addr_raw)}")
+            print(f"  alt:  {_addr_show(alt_addr_raw)}")
             print("  Same (any order) → both")
             addr_winner = "both"
         elif len(base_list) > len(alt_list) and set(alt_list) <= set(base_list):
             print("\n--- Address ---")
             print(f"  base:  {_addr_show(base_addr_raw)}")
-            print(f"  match: {_addr_show(alt_addr_raw)}")
+            print(f"  alt:  {_addr_show(alt_addr_raw)}")
             print("  Base has more items → base")
             addr_winner = "base"
         elif len(alt_list) > len(base_list) and set(base_list) <= set(alt_list):
             print("\n--- Address ---")
             print(f"  base:  {_addr_show(base_addr_raw)}")
-            print(f"  match: {_addr_show(alt_addr_raw)}")
-            print("  Match has more items → match")
+            print(f"  alt:  {_addr_show(alt_addr_raw)}")
+            print("  Alt has more items → alt")
             addr_winner = "alt"
         if addr_winner is None:
             base_complete = _addr_completeness(base_addr_raw)
@@ -259,14 +259,14 @@ def generate_golden_label(row):
             if base_complete > alt_complete:
                 print("\n--- Address ---")
                 print(f"  base:  {_addr_show(base_addr_raw)}")
-                print(f"  match: {_addr_show(alt_addr_raw)}")
+                print(f"  alt:  {_addr_show(alt_addr_raw)}")
                 print("  Base has fewer empty fields → base")
                 addr_winner = "base"
             elif alt_complete > base_complete:
                 print("\n--- Address ---")
                 print(f"  base:  {_addr_show(base_addr_raw)}")
-                print(f"  match: {_addr_show(alt_addr_raw)}")
-                print("  Match has fewer empty fields → match")
+                print(f"  alt:  {_addr_show(alt_addr_raw)}")
+                print("  Alt has fewer empty fields → alt")
                 addr_winner = "alt"
     if addr_winner is None:
         addr_winner = _prompt_superiority(
@@ -294,7 +294,7 @@ def generate_golden_label(row):
     if base_cat_display == alt_cat_display:
         print("\n--- Category ---")
         print(f"  base:  {base_cat_display}")
-        print(f"  match: {alt_cat_display}")
+        print(f"  alt:  {alt_cat_display}")
         print("  Same → both")
         cat_winner = "both"
     else:
