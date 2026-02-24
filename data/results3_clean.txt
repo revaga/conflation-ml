@@ -1,0 +1,87 @@
+======================================================================
+PHASE 5 -- Ensemble Classifier (LogReg + GBC, xgboost_testlabels)
+======================================================================
+  Loaded 2000 rows from data/phase1_processed.parquet
+  Extracting names and categories from JSON ...
+  Extracting source metadata ...
+  Calculating features ...
+  Validating website URLs (this may take a while) ...
+  Validating phone numbers ...
+  Loading truth from data/golden_dataset_100.parquet (column: xgboost_testlabels) ...
+  Applied 100 truth labels (accept=77, keep_base=23)
+  Total labels -- Accept: 282, Keep_base: 541, Unlabeled: 1177
+
+  Heuristic training set: 723 rows (accept=205, keep_base=518)
+  Golden test set:       100 rows (accept=77, keep_base=23)
+
+  Sweeping ensemble weights (LogReg vs GBC) ...
+  Best ensemble weight: LogReg=0.3, GBC=0.7
+  5-fold CV accuracy (LogReg only):  76.0000%
+  5-fold CV accuracy (GBC only):     68.0000%
+  5-fold CV accuracy (Ensemble):     79.0000%  <-- honest estimate
+  Optimal threshold:                 0.29
+
+  Training final models ...
+
+  Golden-100 in-sample accuracy: 79.0000%
+  Golden-100 CV accuracy:        79.0000%  <-- honest estimate
+
+  Confusion Matrix (in-sample):
+    TP=77  FP=21
+    FN=0  TN=2
+  Precision: 0.7857 | Recall: 1.0000 | F1: 0.8800
+
+  GBC Feature usage (150 trees):
+  ------------------------------------------------------------
+    feat_name_addr_sim_product             81  (0.540)  #####################
+    feat_base_exists_score                 54  (0.360)  ##############
+    feat_existence_conf_delta               8  (0.053)  ##
+    feat_avg_similarity                     7  (0.047)  #
+    feat_match_exists_score                 0  (0.000)
+    feat_addr_richness_delta                0  (0.000)
+    feat_match_has_phone                    0  (0.000)
+    feat_base_has_phone                     0  (0.000)
+    feat_match_has_web                      0  (0.000)
+    feat_base_has_web                       0  (0.000)
+    feat_phone_presence_delta               0  (0.000)
+    feat_web_presence_delta                 0  (0.000)
+    feat_match_web_valid                    0  (0.000)
+    feat_base_web_valid                     0  (0.000)
+    feat_web_valid_delta                    0  (0.000)
+    feat_match_phone_valid                  0  (0.000)
+    feat_base_phone_valid                   0  (0.000)
+    feat_phone_valid_delta                  0  (0.000)
+    feat_name_similarity                    0  (0.000)
+    feat_addr_similarity                    0  (0.000)
+    feat_phone_similarity                   0  (0.000)
+    feat_phone_exact_match                  0  (0.000)
+    feat_web_similarity                     0  (0.000)
+    feat_category_similarity                0  (0.000)
+    feat_category_exact_match               0  (0.000)
+    feat_is_msft_match                      0  (0.000)
+    feat_is_meta_match                      0  (0.000)
+    feat_src_count_delta                    0  (0.000)
+    feat_recency_delta                      0  (0.000)
+    feat_completeness_delta                 0  (0.000)
+    feat_valid_count_delta                  0  (0.000)
+  ------------------------------------------------------------
+
+  LogReg coefficients (top features):
+  ------------------------------------------------------------
+    feat_addr_richness_delta             +0.0764
+    feat_name_addr_sim_product           +0.0457
+    feat_name_similarity                 +0.0418
+    feat_addr_similarity                 +0.0413
+    feat_existence_conf_delta            +0.0377
+    feat_avg_similarity                  +0.0366
+    feat_category_similarity             +0.0362
+    feat_phone_similarity                +0.0274
+    feat_match_exists_score              +0.0154
+    feat_web_similarity                  +0.0013
+    (bias)                               +0.7856
+  ------------------------------------------------------------
+
+  Predicting conflation for all 2000 records ...
+  Decision: Accept Match = 1692 | Keep Base = 308
+
+  Done! Results saved to data/xgboost_results.parquet

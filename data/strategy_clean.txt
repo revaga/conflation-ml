@@ -1,0 +1,33 @@
+Engineering features...
+Heuristic: 915 rows (pos=642, neg=273)
+
+=== Strategy Comparison ===
+
+  Heuristic->ALL n=80 lr=0.1: acc@0.5=69.00%  best_acc=73.00%@0.30
+  Heuristic->ALL n=150 lr=0.05: acc@0.5=69.00%  best_acc=75.00%@0.30
+  Heuristic->ALL n=200 lr=0.03: acc@0.5=69.00%  best_acc=74.00%@0.30
+  Heuristic->TOP10 n=80 lr=0.1: acc@0.5=69.00%  best_acc=74.00%@0.30
+  Heuristic->TOP10 n=150 lr=0.05: acc@0.5=69.00%  best_acc=74.00%@0.30
+  Heuristic->TOP10 n=200 lr=0.03: acc@0.5=69.00%  best_acc=74.00%@0.30
+
+  Blend+CV ALL n=80 lr=0.1 gw=5: acc@0.5=70.00%  best_acc=74.00%@0.30
+  Blend+CV ALL n=80 lr=0.1 gw=10: acc@0.5=72.00%  best_acc=77.00%@0.30
+  Blend+CV ALL n=150 lr=0.05 gw=5: acc@0.5=70.00%  best_acc=78.00%@0.30
+  Blend+CV ALL n=150 lr=0.05 gw=10: acc@0.5=72.00%  best_acc=77.00%@0.30
+  Blend+CV TOP10 n=80 lr=0.1 gw=5: acc@0.5=70.00%  best_acc=74.00%@0.30
+  Blend+CV TOP10 n=80 lr=0.1 gw=10: acc@0.5=71.00%  best_acc=77.00%@0.30
+  Blend+CV TOP10 n=150 lr=0.05 gw=5: acc@0.5=70.00%  best_acc=78.00%@0.30
+  Blend+CV TOP10 n=150 lr=0.05 gw=10: acc@0.5=71.00%  best_acc=77.00%@0.30
+
+--- Logistic Regression (golden-only, 5-fold CV) ---
+  LogReg ALL L2=1.0: acc@0.5=77.00%  best_acc=78.00%@0.46
+  LogReg TOP10 L2=1.0: acc@0.5=76.00%  best_acc=79.00%@0.59
+
+--- k-NN (golden-only, 5-fold CV) ---
+  k-NN k=3: acc@0.5=67.00%  best_acc=77.00%@0.30
+  k-NN k=5: acc@0.5=72.00%  best_acc=76.00%@0.30
+  k-NN k=7: acc@0.5=75.00%  best_acc=76.00%@0.30
+  k-NN k=11: acc@0.5=77.00%  best_acc=77.00%@0.30
+  k-NN k=15: acc@0.5=77.00%  best_acc=77.00%@0.30
+
+Done!

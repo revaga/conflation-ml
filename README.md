@@ -109,6 +109,8 @@ Each row is a pre-matched pair. Columns without a prefix come from the **conflat
 ## Phase 5: Evaluation
 
 ## XGBoost
+Phone number format validation with phonenumber python library and country codes
+Website existence validation with https GET request
 
 
 ## Schema Reference

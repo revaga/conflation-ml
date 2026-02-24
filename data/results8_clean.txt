@@ -1,0 +1,113 @@
+======================================================================
+PHASE 5 -- Ensemble Classifier (2-stage: accept/reject + both)
+======================================================================
+  Loaded 2000 rows from data/phase1_processed.parquet
+  Extracting names and categories from JSON ...
+  Extracting source metadata ...
+  Calculating features ...
+  Validating website URLs (this may take a while) ...
+  Validating phone numbers ...
+  Loading truth from data/golden_dataset_100.parquet (column: xgboost_testlabels) ...
+  Applied 100 truth labels (accept=77, keep_base=23)
+  Total labels -- Accept: 283, Keep_base: 541, Unlabeled: 1176
+
+  Heuristic training set: 724 rows (accept=206, keep_base=518)
+  Golden test set:       100 rows (accept=77, keep_base=23)
+
+  Sweeping ensemble weights (LogReg vs GBC) ...
+  Best ensemble weight: LogReg=0.8, GBC=0.2
+  5-fold CV accuracy (LogReg):   76.0000%
+  5-fold CV accuracy (GBC):      67.0000%
+  5-fold CV accuracy (Ensemble): 79.0000%  <-- honest estimate
+  Optimal threshold:             0.53
+
+  Stage 1: Training final models ...
+
+  --- Stage 1: Binary (match+both vs base) ---
+  In-sample accuracy:  79.0000%
+  CV accuracy:         79.0000%  <-- honest estimate
+  Confusion Matrix:  TP=76  FP=20  FN=1  TN=3
+  Precision: 0.7917 | Recall: 0.9870 | F1: 0.8786
+
+  --- Stage 2: Detecting 'both' among accepted matches ---
+  3-class accuracy: 56.0000% (56/100)
+
+  3-class confusion matrix (rows=truth, cols=pred):
+  truth/pred     match    both    base  | total
+  --------------------------------------------
+  match             39       2       1  |    42
+  both              21      14       0  |    35
+  base              16       4       3  |    23
+
+  Per-class metrics:
+    match   : precision=0.5132  recall=0.9286  F1=0.6610  (n=42)
+    both    : precision=0.7000  recall=0.4000  F1=0.5091  (n=35)
+    base    : precision=0.7500  recall=0.1304  F1=0.2222  (n=23)
+
+  GBC Feature usage (150 trees):
+  ------------------------------------------------------------
+    feat_name_addr_sim_product             87  (0.580)  #######################
+    feat_base_exists_score                 42  (0.280)  ###########
+    feat_base_has_social                    9  (0.060)  ##
+    feat_existence_conf_delta               6  (0.040)  #
+    feat_avg_similarity                     5  (0.033)  #
+    feat_adds_new_info                      1  (0.007)
+    feat_match_exists_score                 0  (0.000)
+    feat_addr_richness_delta                0  (0.000)
+    feat_match_has_phone                    0  (0.000)
+    feat_base_has_phone                     0  (0.000)
+    feat_match_has_web                      0  (0.000)
+    feat_base_has_web                       0  (0.000)
+    feat_phone_presence_delta               0  (0.000)
+    feat_web_presence_delta                 0  (0.000)
+    feat_match_has_brand                    0  (0.000)
+    feat_base_has_brand                     0  (0.000)
+    feat_brand_delta                        0  (0.000)
+    feat_match_has_social                   0  (0.000)
+    feat_social_delta                       0  (0.000)
+    feat_match_web_valid                    0  (0.000)
+    feat_base_web_valid                     0  (0.000)
+    feat_web_valid_delta                    0  (0.000)
+    feat_match_phone_valid                  0  (0.000)
+    feat_base_phone_valid                   0  (0.000)
+    feat_phone_valid_delta                  0  (0.000)
+    feat_name_similarity                    0  (0.000)
+    feat_addr_similarity                    0  (0.000)
+    feat_phone_similarity                   0  (0.000)
+    feat_phone_exact_match                  0  (0.000)
+    feat_web_similarity                     0  (0.000)
+    feat_category_similarity                0  (0.000)
+    feat_category_exact_match               0  (0.000)
+    feat_is_msft_match                      0  (0.000)
+    feat_is_meta_match                      0  (0.000)
+    feat_src_count_delta                    0  (0.000)
+    feat_recency_delta                      0  (0.000)
+    feat_completeness_delta                 0  (0.000)
+    feat_valid_count_delta                  0  (0.000)
+    feat_addr_dissimilarity                 0  (0.000)
+    feat_conf_x_addr_richness               0  (0.000)
+    feat_phone_exclusive                    0  (0.000)
+    feat_web_exclusive                      0  (0.000)
+  ------------------------------------------------------------
+
+  LogReg coefficients:
+  ------------------------------------------------------------
+    feat_addr_richness_delta             +0.0762
+    feat_name_addr_sim_product           +0.0457
+    feat_name_similarity                 +0.0415
+    feat_addr_similarity                 +0.0413
+    feat_category_similarity             +0.0375
+    feat_avg_similarity                  +0.0362
+    feat_existence_conf_delta            +0.0356
+    feat_brand_delta                     -0.0277
+    feat_phone_similarity                +0.0271
+    feat_match_exists_score              +0.0132
+    feat_social_delta                    +0.0077
+    feat_web_similarity                  +0.0008
+    (bias)                               +0.7857
+  ------------------------------------------------------------
+
+  Predicting for all 2000 records ...
+  Decision: match=1281 | both=312 | base=407
+
+  Done! Results saved to data/xgboost_results.parquet

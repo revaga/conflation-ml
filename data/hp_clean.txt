@@ -1,0 +1,38 @@
+Engineering features...
+Features: 27
+
+=== Hyperparameter Search (Golden-100 only, stratified 5-fold CV) ===
+Config                                         BalAcc  RawAcc   Thr
+----------------------------------------------------------------------
+  stump_100_lr01                               0.5666  0.4500  0.62
+  stump_200_lr005                              0.5401  0.5500  0.56
+  stump_150_lr008                              0.5601  0.4400  0.62
+  depth2_80_lr01                               0.5407  0.4100  0.68
+  depth2_120_lr005                             0.5251  0.4800  0.60
+  depth2_150_lr005                             0.5274  0.4600  0.63
+  depth2_200_lr003                             0.5384  0.4300  0.64
+  depth3_80_lr005                              0.5000  0.7700  0.20
+  depth3_120_lr005                             0.5121  0.4600  0.64
+  depth3_80_lr01                               0.5212  0.3800  0.75
+  depth2_120_lr005_sub1                        0.5172  0.2800  0.67
+  depth2_80_lr01_leaf5                         0.5474  0.3500  0.73
+  depth1_300_lr005                             0.5407  0.4100  0.65
+  depth2_200_lr005_sub1                        0.5367  0.3100  0.74
+
+Best: stump_100_lr01 bal_acc=0.5666 raw_acc=0.4500 thr=0.62
+
+=== With Heuristic Data Blended In ===
+Heuristic training rows: 906 (pos=613, neg=293)
+
+Config                                         BalAcc  RawAcc   Thr
+----------------------------------------------------------------------
+  blend_stump100_lr01_gw3                      0.5875  0.6700  0.70
+  blend_stump100_lr01_gw5                      0.5963  0.6600  0.66
+  blend_stump100_lr01_gw10                     0.5726  0.6000  0.62
+  blend_d2_120_lr005_gw3                       0.5793  0.5400  0.73
+  blend_d2_120_lr005_gw5                       0.5663  0.5200  0.69
+  blend_d2_120_lr005_gw10                      0.5624  0.4200  0.72
+  blend_d2_80_lr01_gw5                         0.5881  0.5300  0.73
+  blend_d2_200_lr003_gw5                       0.5723  0.6700  0.58
+
+Best blended: blend_stump100_lr01_gw5 bal_acc=0.5963 raw_acc=0.6600 thr=0.66
