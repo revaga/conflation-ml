@@ -7,3 +7,4 @@ xgboost
 requests
 phonenumbers
 beautifulsoup4
+deepparse
