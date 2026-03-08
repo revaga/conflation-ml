@@ -1,1 +1,4 @@
 overture/
+
+# API keys (copy api_keys.env.example to api_keys.env and add your keys)
+api_keys.env

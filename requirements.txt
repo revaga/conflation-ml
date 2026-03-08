@@ -4,7 +4,14 @@ pandas==3.0.0
 rapidfuzz==3.12.1
 pyarrow==19.0.0
 xgboost
+scikit-learn
+optuna>=3.0
 requests
 phonenumbers
 beautifulsoup4
-deepparse
+deepparse  # optional: needs Microsoft C++ Build Tools on Windows (https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+openai
+google-generativeai
+transformers
+torch
+accelerate

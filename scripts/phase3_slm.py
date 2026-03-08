@@ -48,7 +48,7 @@ Instructions:
 
 Output JSON Format:
 {{
-  "same_place": true/false,
+  "label": alt/base/both/none,
   "confidence": 0.0 to 1.0,
   "reason": "One sentence explanation referencing specific fields."
 }}
@@ -59,7 +59,7 @@ def call_slm(client, prompt, model=MODEL_NAME):
     if not client:
         # Mock response for testing without API key
         return {
-            "same_place": False,
+            "label": "none",
             "confidence": 0.0,
             "reason": "API Key missing, mock response."
         }

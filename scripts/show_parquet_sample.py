@@ -46,6 +46,6 @@ if __name__ == "__main__":
     else:
         # Default to the file requested by the user relative to project root
         # Assuming script is run from project root
-        target_file = "data/project_a_samples.parquet"
+        target_file = "data/phase3_slm_labeled.parquet"
     
     show_parquet_sample(target_file)
