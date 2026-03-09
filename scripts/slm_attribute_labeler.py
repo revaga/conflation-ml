@@ -86,16 +86,16 @@ BOOKKEEPING_COLUMNS = ["golden_label"] + [f"attr_{a}_winner" for a in ATTR_ATTRS
 
 # Prompt template for same-place reasoning (kimi-k2-instruct-0905 via Ollama)
 PROMPT_TEMPLATE = """
-Determine if these two business records refer to the same physical location.
+Determine whether these two business records describe the same physical location.
 
 RULES:
-- If the confidence is over 0.5 there is a good chance they are the same place.
-- Focus on street number + street name.
-- Same ZIP code = same general area.
-- Suite/unit differences = SAME place.
-- Ignore category, brand, phone, website differences.
-- Use 0 for different places, 1 for same place.
+- Confidence > 0.5 suggests they are likely the same place.
+- Focus on street number and street name; these are the strongest signals.
+- Same ZIP/postcode = same general area; treat as supporting "same place."
+- Suite/unit/floor differences only = still the SAME place.
+- Ignore category, brand, phone, and website; they often differ for the same location.
 
+Output: 0 = different places, 1 = same place.
 
 Record A:
 Name: {name}
