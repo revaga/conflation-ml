@@ -5,6 +5,7 @@ that appear in one dataset but not the other.
 import os
 import sys
 import pandas as pd
+from parquet_io import read_parquet_safe
 
 # Paths relative to project root
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,7 +21,7 @@ def load_or_none(path: str) -> pd.DataFrame | None:
         print(f"File not found: {path}")
         return None
     try:
-        return pd.read_parquet(path)
+        return read_parquet_safe(path)
     except Exception as e:
         print(f"Error reading {path}: {e}")
         return None

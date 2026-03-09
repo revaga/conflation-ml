@@ -1,6 +1,6 @@
-
 import pandas as pd
 import sys
+from parquet_io import read_parquet_safe
 import os
 
 def show_parquet_sample(file_path):
@@ -9,7 +9,7 @@ def show_parquet_sample(file_path):
         return
 
     try:
-        df = pd.read_parquet(file_path)
+        df = read_parquet_safe(file_path)
         
         # Configure pandas to show all columns and not truncate content too aggressively
         pd.set_option('display.max_columns', None)

@@ -2,6 +2,7 @@ import os
 import json
 import pandas as pd
 from openai import OpenAI
+from parquet_io import read_parquet_safe
 
 # Configuration
 # This looks for standard OpenAI API key, or explicit GROQ_API_KEY if using Groq
@@ -84,9 +85,10 @@ def call_slm(client, prompt, model=MODEL_NAME):
         }
 
 def main():
+    print(f"Model: {MODEL_NAME}")
     print("Loading scored data...")
     try:
-        df = pd.read_parquet('data/phase2_scored.parquet')
+        df = read_parquet_safe('data/phase2_scored.parquet')
     except FileNotFoundError:
         print("Error: data/phase2_scored.parquet not found. Run phase2_similarity.py first.")
         return

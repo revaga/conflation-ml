@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-
+from parquet_io import read_parquet_safe
 from phonenumber_validator import validate_phone_number, try_with_region
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -100,7 +100,7 @@ def main():
         print(f"Error: {GOLDEN_PATH} not found.", file=sys.stderr)
         sys.exit(1)
 
-    df = pd.read_parquet(GOLDEN_PATH)
+    df = read_parquet_safe(str(GOLDEN_PATH))
     if "attr_phone_winner" not in df.columns or "golden_label" not in df.columns:
         print("Error: golden dataset must have attr_phone_winner and golden_label columns.", file=sys.stderr)
         sys.exit(1)

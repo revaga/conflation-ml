@@ -21,6 +21,7 @@ import pandas as pd
 from rapidfuzz import fuzz
 from website_validator import verify_website
 from phonenumber_validator import validate_phone_number
+from parquet_io import read_parquet_safe
 
 # Avoid importing scripts/xgboost.py instead of the installed xgboost package
 _script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -42,8 +43,8 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-INPUT_PATH = "data/phase1_processed.parquet"
-GOLDEN_PATH = "data/golden_dataset_100.parquet"
+INPUT_PATH = "data/phase3_slm_labeled.parquet"
+GOLDEN_PATH = "data/golden_dataset_200.parquet"
 OUTPUT_PATH = "data/xgboost_multiclass_results.parquet"
 RANDOM_STATE = 42
 LABEL_COL_4CLASS = "label_4class"
@@ -647,13 +648,13 @@ def main():
     print("Multiclass XGBoost (none / alt / base / both) with hyperparameter tuning")
     print("=" * 70)
 
-    df = pd.read_parquet(INPUT_PATH)
+    df = read_parquet_safe(INPUT_PATH)
     print(f"  Loaded {len(df)} rows from {INPUT_PATH}")
 
     df = engineer_features(df)
 
     # Load golden and apply 4-class labels to golden rows
-    golden = pd.read_parquet(GOLDEN_PATH) if os.path.exists(GOLDEN_PATH) else pd.DataFrame()
+    golden = read_parquet_safe(GOLDEN_PATH) if os.path.exists(GOLDEN_PATH) else pd.DataFrame()
     if golden.empty:
         print(f"  WARNING: {GOLDEN_PATH} not found or empty")
     else:
@@ -676,7 +677,16 @@ def main():
             t_addr = float((pos["feat_addr_similarity"].median() + neg["feat_addr_similarity"].median()) / 2)
             print(f"  Thresholds from golden: t_name={t_name:.3f}, t_addr={t_addr:.3f}")
 
+    # USE SLM LABELS recalculated from winners
+    if any(f"attr_{a}_winner" in df.columns for a in ATTR_ATTRS):
+        print("  Applying labels from SLM (recalculating 4-class from winners) ...")
+        ng_mask = ~df["is_golden"]
+        df.loc[ng_mask, LABEL_COL_4CLASS] = df[ng_mask].apply(recalculate_4class_label, axis=1)
+
+    # Disable heuristics
+    """
     df = apply_heuristic_4class(df, t_name=t_name, t_addr=t_addr)
+    """
 
     train_df = df[~df["is_golden"]].dropna(subset=[LABEL_COL_4CLASS]).copy()
     test_df = df[df["is_golden"]].dropna(subset=[LABEL_COL_4CLASS]).copy()

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 from rapidfuzz import fuzz
+from parquet_io import read_parquet_safe
 from rapidfuzz import distance
 
 # --- Config ---
@@ -193,13 +194,13 @@ def report_base_accuracy(
     golden_path (default phase3_slm_labeled), report accuracy. Returns accuracy in [0, 1].
     """
     golden_path = golden_path or PHASE3_PATH
-    df = pd.read_parquet(scored_path)
+    df = read_parquet_safe(str(scored_path))
     if "total_similarity" not in df.columns:
         raise ValueError(f"No 'total_similarity' in {scored_path}. Run scoring first.")
     if not golden_path.exists():
         print(f"Golden path not found: {golden_path}. Skipping base accuracy.")
         return float("nan")
-    golden = pd.read_parquet(golden_path)
+    golden = read_parquet_safe(str(golden_path))
     if "golden_label" not in golden.columns:
         print("No 'golden_label' in golden file. Skipping base accuracy.")
         return float("nan")
@@ -249,7 +250,7 @@ def main():
         return 1
 
     print("Loading data...")
-    df = pd.read_parquet(args.input)
+    df = read_parquet_safe(str(args.input))
 
     # Legacy scoring (phase2 original)
     print("Calculating legacy name/address/phone/website scores...")

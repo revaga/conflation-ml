@@ -3,10 +3,11 @@ import pandas as pd, numpy as np, sys, json
 sys.path.insert(0, 'scripts')
 from rapidfuzz import fuzz
 from datetime import datetime, timezone
+from parquet_io import read_parquet_safe
 
 # Load and feature-engineer
-df = pd.read_parquet('data/phase1_processed.parquet')
-golden = pd.read_parquet('data/golden_dataset_100.parquet')
+df = read_parquet_safe('data/phase1_processed.parquet')
+golden = read_parquet_safe('data/golden_dataset_100.parquet')
 
 def safe_json(x):
     if x is None or (isinstance(x, float) and np.isnan(x)):

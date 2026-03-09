@@ -1,9 +1,10 @@
 """Analyze feature discriminative power on golden-100."""
 import pandas as pd, numpy as np, sys
 sys.path.insert(0, 'scripts')
+from parquet_io import read_parquet_safe
 
-df = pd.read_parquet('data/phase1_processed.parquet')
-golden = pd.read_parquet('data/golden_dataset_100.parquet')
+df = read_parquet_safe('data/phase1_processed.parquet')
+golden = read_parquet_safe('data/golden_dataset_100.parquet')
 g = df[df['id'].isin(golden['id'])].copy()
 label_map = dict(zip(golden['id'], golden['xgboost_testlabels']))
 g['truth'] = g['id'].map(label_map)

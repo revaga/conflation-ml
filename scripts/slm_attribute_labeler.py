@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 from openai import OpenAI
+from parquet_io import read_parquet_safe
 
 # --- Config ---
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -50,48 +51,21 @@ def _get(key: str, default: str = "") -> str:
     return os.getenv(key) or _keys_file.get(key, default)
 
 
-# Provider selection:
-# - "local": uses AutoTokenizer + AutoModelForCausalLM (e.g. google/gemma-3-1b-it) on this machine
-# - "groq": uses GROQ_API_KEY and Groq's OpenAI-compatible endpoint
-# - "openai": uses OPENAI_API_KEY and OpenAI's default endpoint
-# - "gemini": uses GEMINI_API_KEY or GOOGLE_API_KEY via google-generativeai
-# - "huggingface": uses HF_TOKEN and router.huggingface.co
-_has_groq = bool(_get("GROQ_API_KEY"))
-_has_openai = bool(_get("OPENAI_API_KEY"))
+# Provider selection (Hugging Face only):
+# - "local": AutoTokenizer + AutoModelForCausalLM on this machine (e.g. google/gemma-3-1b-it)
+# - "huggingface": HF_TOKEN + router.huggingface.co (OpenAI-compatible API)
 _has_hf = bool(_get("HF_TOKEN") or _get("HUGGINGFACE_API_KEY"))
-_provider_default = (
-    "local" if _get("SLM_PROVIDER", "").lower() == "local"
-    else "openai" if (_has_openai and not _has_groq)
-    else "huggingface" if (_has_hf and not _has_groq and not _has_openai)
-    else "groq"
-)
+_provider_default = "huggingface" if _has_hf else "local"
 SLM_PROVIDER = _get("SLM_PROVIDER", _provider_default).lower()
-if not SLM_PROVIDER:
-    SLM_PROVIDER = "groq"
+if SLM_PROVIDER not in ("local", "huggingface"):
+    SLM_PROVIDER = "local"
 
-# Groq / OpenAI style config (OpenAI-compatible chat.completions)
-API_KEY = _get("GROQ_API_KEY") or _get("OPENAI_API_KEY")
-BASE_URL = _get("OPENAI_BASE_URL") or ("https://api.groq.com/openai/v1" if _get("GROQ_API_KEY") else None)
-
-# Hugging Face (router is OpenAI-compatible; api-inference is deprecated)
 HF_TOKEN = _get("HF_TOKEN") or _get("HUGGINGFACE_API_KEY")
 HF_ROUTER_URL = "https://router.huggingface.co/v1"
 
 # Model name: use SLM_MODEL if set; otherwise default by provider
-_default_model = (
-    "google/gemma-3-1b-it" if SLM_PROVIDER == "local"
-    else "gpt-4o-mini" if SLM_PROVIDER == "openai"
-    else "gemini-2.5-flash" if SLM_PROVIDER == "gemini"
-    else "HuggingFaceH4/zephyr-7b-beta" if SLM_PROVIDER == "huggingface"
-    else "llama-3.3-70b-versatile"
-)
+_default_model = "google/gemma-3-1b-it" if SLM_PROVIDER == "local" else "HuggingFaceH4/zephyr-7b-beta"
 MODEL_NAME = _get("SLM_MODEL") or _default_model
-
-# Gemini-specific throttling (free tier friendly)
-# Requests per minute; 0 or missing disables extra sleeps.
-GEMINI_MAX_RPM = float(_get("GEMINI_MAX_RPM", "3"))
-_GEMINI_MIN_INTERVAL = 60.0 / GEMINI_MAX_RPM if GEMINI_MAX_RPM > 0 else 0.0
-_GEMINI_LAST_CALL_TS = 0.0
 
 # Match golden_dataset_maker schema
 ATTR_ATTRS = ("name", "phone", "web", "address", "category")
@@ -200,30 +174,13 @@ def get_client():
         )
         return {"tokenizer": tokenizer, "model": model}
 
-    if SLM_PROVIDER == "gemini":
-        api_key = _get("GEMINI_API_KEY") or _get("GOOGLE_API_KEY")
-        if not api_key:
-            print("WARNING: No Gemini API key. Set GEMINI_API_KEY or GOOGLE_API_KEY in env or api_keys.env.")
-            return None
-        try:
-            import google.generativeai as genai
-        except ImportError:
-            print("ERROR: google-generativeai is not installed. Install with `pip install google-generativeai`.")
-            return None
-        genai.configure(api_key=api_key)
-        return genai
-
     if SLM_PROVIDER == "huggingface":
         if not HF_TOKEN:
             print("WARNING: No Hugging Face token. Set HF_TOKEN or HUGGINGFACE_API_KEY in env or api_keys.env.")
             return None
         return OpenAI(api_key=HF_TOKEN, base_url=HF_ROUTER_URL)
 
-    # Groq / OpenAI via OpenAI-compatible client
-    if not API_KEY:
-        print("WARNING: No API key. Set GROQ_API_KEY or OPENAI_API_KEY in env or api_keys.env.")
-        return None
-    return OpenAI(api_key=API_KEY, base_url=BASE_URL)
+    return None
 
 
 def _extract_json(text: str):
@@ -299,32 +256,16 @@ def call_slm(client, prompt, model=MODEL_NAME):
                 return json.loads(content)
             except json.JSONDecodeError:
                 return _extract_json(content)
-        # Gemini path (google-generativeai)
-        if SLM_PROVIDER == "gemini":
-            global _GEMINI_LAST_CALL_TS
-            if _GEMINI_MIN_INTERVAL > 0:
-                now = time.time()
-                elapsed = now - _GEMINI_LAST_CALL_TS
-                if elapsed < _GEMINI_MIN_INTERVAL:
-                    time.sleep(_GEMINI_MIN_INTERVAL - elapsed)
-                _GEMINI_LAST_CALL_TS = time.time()
-
-            model_obj = client.GenerativeModel(model)
-            response = model_obj.generate_content(prompt)
-            content = response.text
-        else:
-            # Groq / OpenAI / Hugging Face router (OpenAI-compatible chat.completions)
-            kwargs = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": "You output only valid JSON with keys: name, phone, web, address, category (each value: base, alt, both, or none). Optionally golden_label (base/alt/abstain) and reason."},
-                    {"role": "user", "content": prompt},
-                ],
-            }
-            if SLM_PROVIDER != "huggingface":
-                kwargs["response_format"] = {"type": "json_object"}
-            response = client.chat.completions.create(**kwargs)
-            content = response.choices[0].message.content or ""
+        # Hugging Face router (OpenAI-compatible chat.completions)
+        kwargs = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "You output only valid JSON with keys: name, phone, web, address, category (each value: base, alt, both, or none). Optionally golden_label (base/alt/abstain) and reason."},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        response = client.chat.completions.create(**kwargs)
+        content = response.choices[0].message.content or ""
 
         try:
             return json.loads(content)
@@ -413,14 +354,14 @@ def main():
     if not INPUT_PATH.exists():
         print(f"Error: {INPUT_PATH} not found.")
         return
-    df = pd.read_parquet(INPUT_PATH)
+    df = read_parquet_safe(str(INPUT_PATH))
     total = len(df)
 
     # Resume: skip already-labeled ids
     labeled_ids = set()
     results_df = pd.DataFrame()
     if OUTPUT_PATH.exists():
-        results_df = pd.read_parquet(OUTPUT_PATH)
+        results_df = read_parquet_safe(str(OUTPUT_PATH))
         labeled_ids = set(results_df["id"].tolist())
         print(f"Resuming: {len(labeled_ids)} rows already labeled in {OUTPUT_PATH}")
     df_remaining = df[~df["id"].isin(labeled_ids)].copy()

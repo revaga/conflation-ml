@@ -3,15 +3,15 @@ XGBoost-style Gradient Boosted Classifier for Places Attribute Conflation
 =====================================================================================
 Two-stage approach:
   Stage 1: Binary classifier  match+both -> 1 (accept)  vs  base -> 0 (keep base)
-           Uses Ensemble (L2-LogReg + GBC stumps) — best CV accuracy ~79%
+           Uses Ensemble (L2-LogReg + GBC stumps).
   Stage 2: Post-processing to identify "both" cases among accepted matches.
-           If the base is equally complete & similar, reclassify accept -> "both"
 
-Truth column: "xgboost_testlabels" (match/both/base) in golden_dataset_100.
+Training: phase3_slm_labeled.parquet (SLM labels), EXCLUDING the 200 golden rows.
+Test/truth: golden_dataset_200.parquet (3class_testlabels).
 Output: 3-class prediction (match / both / base) + probability.
 
 Run from project root:
-    python scripts/xgboost.py
+    python scripts/xgboostbinary.py
 """
 
 import json
@@ -25,18 +25,19 @@ import pandas as pd
 from rapidfuzz import fuzz
 from website_validator import verify_website
 from phonenumber_validator import validate_phone_number
+from parquet_io import read_parquet_safe
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-INPUT_PATH = "data/phase1_processed.parquet"
-GOLDEN_PATH = "data/golden_dataset_100.parquet"
-GOLDEN_NROWS = 100
+INPUT_PATH = "data/phase3_slm_labeled.parquet"
+GOLDEN_PATH = "data/golden_dataset_200.parquet"
+GOLDEN_NROWS = 200
 OUTPUT_PATH = "data/xgboost_results.parquet"
 LABEL_COL = "final_label"
-TRUTH_COL = "xgboost_testlabels"
+TRUTH_COL = "3class_testlabels"
 RANDOM_STATE = 42
 
 # ---------------------------------------------------------------------------
@@ -329,7 +330,7 @@ TOP_FEATURE_COLS = [
 # ---------------------------------------------------------------------------
 
 def _truth_to_binary(val):
-    """Map xgboost_testlabels -> binary:  match+both -> 1, base -> 0."""
+    """Map 3class_testlabels -> binary:  match+both -> 1, base -> 0."""
     if pd.isna(val) or val is None:
         return np.nan
     v = str(val).strip().lower()
@@ -340,72 +341,90 @@ def _truth_to_binary(val):
     return np.nan
 
 
+def _load_golden_parquet(path: str, truth_col: str) -> pd.DataFrame:
+    """Load golden parquet (uses read_parquet_safe for PyArrow bug workaround)."""
+    needed = ["id", truth_col]
+    golden = read_parquet_safe(path)
+    return golden[needed] if set(needed).issubset(golden.columns) else golden
+
+
+def _derive_4class_from_attr_winners(row: pd.Series) -> str:
+    """Derive record-level 4-class (none/alt/base/both) from attr_*_winner columns."""
+    ATTR_ATTRS = ("name", "phone", "web", "address", "category")
+    counts = {"none": 0, "both": 0, "base": 0, "alt": 0}
+    for attr in ATTR_ATTRS:
+        col = f"attr_{attr}_winner"
+        w = row.get(col)
+        if pd.isna(w) or w is None:
+            counts["none"] += 1
+        else:
+            v = str(w).strip().lower()
+            if v in ("base", "alt", "both", "none"):
+                counts[v] = counts.get(v, 0) + 1
+            else:
+                counts["none"] += 1
+    if counts["none"] >= 3:
+        return "none"
+    if counts["both"] >= 3:
+        return "both"
+    if counts["base"] > counts["alt"]:
+        return "base"
+    if counts["alt"] > counts["base"]:
+        return "alt"
+    return "both"
+
+
 def apply_labels(df: pd.DataFrame) -> pd.DataFrame:
-    """Assign labels: golden rows get truth; rest get heuristic labels."""
+    """
+    Assign labels: golden rows (ids in golden_dataset_200) get truth; rest get SLM labels.
+    Training uses phase3_slm_labeled rows EXCLUDING the 200 golden rows.
+    """
     df[LABEL_COL] = np.nan
     df["is_golden"] = False
 
+    golden_ids = set()
     if os.path.exists(GOLDEN_PATH):
         print(f"  Loading truth from {GOLDEN_PATH} (column: {TRUTH_COL}) ...")
-        golden = pd.read_parquet(GOLDEN_PATH)
+        golden = _load_golden_parquet(GOLDEN_PATH, TRUTH_COL)
         if TRUTH_COL not in golden.columns:
             raise KeyError(f"Column '{TRUTH_COL}' not found in {GOLDEN_PATH}")
         golden["_binary"] = golden[TRUTH_COL].apply(_truth_to_binary)
         golden_labeled = golden.dropna(subset=["_binary"])
         label_map = dict(zip(golden_labeled["id"], golden_labeled["_binary"]))
+        golden_ids = set(label_map.keys())
 
         # Also store the 3-class truth for post-processing evaluation
         truth3_map = dict(zip(golden["id"], golden[TRUTH_COL]))
         df["_truth3"] = df["id"].map(truth3_map)
 
-        df["is_golden"] = df["id"].isin(label_map.keys())
+        df["is_golden"] = df["id"].isin(golden_ids)
         for idx, row in df[df["is_golden"]].iterrows():
             df.at[idx, LABEL_COL] = label_map[row["id"]]
         n_golden = df["is_golden"].sum()
         n_pos = int((df.loc[df["is_golden"], LABEL_COL] == 1).sum())
         n_neg = int((df.loc[df["is_golden"], LABEL_COL] == 0).sum())
-        print(f"  Applied {n_golden} truth labels (accept={n_pos}, keep_base={n_neg})")
+        print(f"  Applied {n_golden} truth labels to golden rows (accept={n_pos}, keep_base={n_neg})")
     else:
         print(f"  WARNING: {GOLDEN_PATH} not found")
 
-    # Heuristic thresholds
-    golden_df = df.loc[df["is_golden"]].dropna(subset=[LABEL_COL])
-    y_g = golden_df[LABEL_COL].astype(int)
-    if len(y_g) > 10 and y_g.nunique() >= 2:
-        pos = golden_df[y_g == 1]
-        neg = golden_df[y_g == 0]
-        t_name = float((pos["feat_name_similarity"].median() + neg["feat_name_similarity"].median()) / 2)
-        t_addr = float((pos["feat_addr_similarity"].median() + neg["feat_addr_similarity"].median()) / 2)
-    else:
-        t_name, t_addr = 0.80, 0.78
+    # SLM labels for non-golden rows (training set) — from golden_label or attr_*_winner
+    ng_mask = ~df["is_golden"]
+    if "golden_label" in df.columns:
+        slm_binary = df["golden_label"].apply(_truth_to_binary)
+        df.loc[ng_mask, LABEL_COL] = slm_binary[ng_mask]
+    # Fallback: derive from attr_*_winner
+    still_na = ng_mask & df[LABEL_COL].isna()
+    if still_na.any():
+        attr_cols = [f"attr_{a}_winner" for a in ("name", "phone", "web", "address", "category")]
+        if all(c in df.columns for c in attr_cols):
+            derived = df.loc[still_na].apply(_derive_4class_from_attr_winners, axis=1)
+            df.loc[still_na, LABEL_COL] = derived.apply(lambda x: 1.0 if x in ("alt", "both") else 0.0 if x in ("base", "none") else np.nan)
 
-    ng = ~df["is_golden"]
-    same_place = (
-        (df["feat_name_similarity"] > t_name)
-        | ((df["feat_name_similarity"] > t_name - 0.12) & (df["feat_addr_similarity"] > t_addr))
-    )
-    match_adds_value = (
-        (df["feat_existence_conf_delta"] > 0)
-        | (df["feat_phone_valid_delta"] > 0)
-        | (df["feat_web_valid_delta"] > 0)
-        | (df["feat_completeness_delta"] > 0)
-        | (df["feat_addr_richness_delta"] > 3)
-        | (df["feat_phone_presence_delta"] > 0)
-        | (df["feat_web_presence_delta"] > 0)
-    )
-    cond_pos = ng & same_place & match_adds_value
-    cond_neg = ng & (
-        (df["feat_name_similarity"] < t_name - 0.40)
-        | ((df["feat_valid_count_delta"] < 0) & (df["feat_completeness_delta"] <= 0))
-        | ((df["feat_avg_similarity"] < 0.45) & (df["feat_existence_conf_delta"] <= 0))
-    )
-    df.loc[cond_pos, LABEL_COL] = 1.0
-    df.loc[cond_neg & ~cond_pos, LABEL_COL] = 0.0
-
+    n_train = int((~df["is_golden"] & df[LABEL_COL].notna()).sum())
     n_pos = int((df[LABEL_COL] == 1).sum())
     n_neg = int((df[LABEL_COL] == 0).sum())
     n_unlabeled = int(df[LABEL_COL].isna().sum())
-    print(f"  Total labels -- Accept: {n_pos}, Keep_base: {n_neg}, Unlabeled: {n_unlabeled}")
+    print(f"  SLM training set (excluding golden): {n_train} rows | Total labels — Accept: {n_pos}, Keep_base: {n_neg}, Unlabeled: {n_unlabeled}")
     return df
 
 # ---------------------------------------------------------------------------
@@ -602,13 +621,13 @@ def main():
     print("PHASE 5 -- Ensemble Classifier (2-stage: accept/reject + both)")
     print("=" * 70)
 
-    df = pd.read_parquet(INPUT_PATH)
+    df = read_parquet_safe(INPUT_PATH)
     print(f"  Loaded {len(df)} rows from {INPUT_PATH}")
 
     df = engineer_features(df)
     df = apply_labels(df)
 
-    # -- Split: heuristic (train) vs golden (test/truth) -------------------
+    # -- Split: SLM (train, excluding golden 200) vs golden (test/truth) ----
     train_df = df[~df["is_golden"]].dropna(subset=[LABEL_COL]).copy()
     test_df = df[df["is_golden"]].dropna(subset=[LABEL_COL]).copy()
 
@@ -618,13 +637,13 @@ def main():
     y_test = test_df[LABEL_COL].astype(int).values
 
     n_train, n_test = len(train_df), len(test_df)
-    print(f"\n  Heuristic training set: {n_train} rows "
+    print(f"\n  SLM training set (excl. golden 200): {n_train} rows "
           f"(accept={int((y_train == 1).sum())}, keep_base={int((y_train == 0).sum())})")
-    print(f"  Golden test set:       {n_test} rows "
+    print(f"  Golden test set:                     {n_test} rows "
           f"(accept={int((y_test == 1).sum())}, keep_base={int((y_test == 0).sum())})")
 
     if n_train < 10:
-        print("  ERROR: Not enough heuristically labeled rows to train.")
+        print("  ERROR: Not enough SLM-labeled rows to train (exclude golden 200).")
         return
 
     # -- Sweep ensemble weights --------------------------------------------

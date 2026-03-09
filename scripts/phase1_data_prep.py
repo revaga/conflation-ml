@@ -1,5 +1,6 @@
 import pandas as pd
 import rapidfuzz
+from parquet_io import read_parquet_safe
 from rapidfuzz import fuzz
 import json
 import re
@@ -78,7 +79,7 @@ def main():
     print("Loading data...")
     # Using pandas to read parquet
     try:
-        df = pd.read_parquet('data/project_a_samples.parquet')
+        df = read_parquet_safe('data/project_a_samples.parquet')
     except FileNotFoundError:
         print("Data file not found. Please ensure 'data/project_a_samples.parquet' exists.")
         return

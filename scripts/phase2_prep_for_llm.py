@@ -1,9 +1,10 @@
 import pandas as pd
+from parquet_io import read_parquet_safe
 
 def prepare_llm_candidates():
     print("Loading processed data...")
     # Read the parquet file generated in Phase 1
-    df = pd.read_parquet('data/phase1_processed.parquet')
+    df = read_parquet_safe('data/phase1_processed.parquet')
     
     # Define "Hard Cases" for LLM evaluation
     # These are cases where fuzzy matching is inconclusive (e.g., 30-80% similarity).

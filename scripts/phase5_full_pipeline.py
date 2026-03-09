@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from rapidfuzz import fuzz
+from parquet_io import read_parquet_safe
 import xgboost as xgb
 
 # NOTE: scikit-learn removed due to DLL load issues on this Windows environment.
@@ -822,7 +823,7 @@ def main():
 
     # --- Load ---
     print(f"\nLoading {INPUT_PATH} ...")
-    df = pd.read_parquet(INPUT_PATH)
+    df = read_parquet_safe(str(INPUT_PATH))
     print(f"  Loaded {len(df)} rows, {len(df.columns)} columns.")
 
     # --- Feature Engineering ---

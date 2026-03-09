@@ -1,6 +1,6 @@
-
 import pandas as pd
 import json
+from parquet_io import read_parquet_safe
 import os
 import sys
 
@@ -70,7 +70,7 @@ def main():
         return
 
     print("Loading data...")
-    df = pd.read_parquet(input_file)
+    df = read_parquet_safe(input_file)
     
     # Load existing labels if any
     if os.path.exists(output_file):

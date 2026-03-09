@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-
+from parquet_io import read_parquet_safe
 from phonenumber_validator import validate_phone_number, try_with_region
 from website_validator import verify_website
 
@@ -337,7 +337,7 @@ if __name__ == "__main__":
         print(f"Error: {DATA_PATH} not found.", file=sys.stderr)
         sys.exit(1)
 
-    df = pd.read_parquet(DATA_PATH)
+    df = read_parquet_safe(str(DATA_PATH))
     subset = df.head(NUM_RECORDS).copy()
 
     # Add missing columns from project_a_samples (subset is from it; ensures we have all columns if source ever changes)
@@ -349,7 +349,7 @@ if __name__ == "__main__":
 
     # Add missing columns from phase1_processed (norm_*, *_similarity, etc.) so output has them
     if PHASE1_PATH.exists():
-        phase1 = pd.read_parquet(PHASE1_PATH)
+        phase1 = read_parquet_safe(str(PHASE1_PATH))
         extra_cols = [c for c in phase1.columns if c not in subset.columns]
         if extra_cols:
             phase1_by_id = phase1.set_index("id")
@@ -359,11 +359,11 @@ if __name__ == "__main__":
     # Initialize: prefer golden_dataset_200 for resume; else seed from golden_dataset_100
     n_done = 0
     if OUTPUT_PATH.exists():
-        results_df = pd.read_parquet(OUTPUT_PATH)
+        results_df = read_parquet_safe(str(OUTPUT_PATH))
         n_done = len(results_df)
         print(f"Resuming: {n_done} records already labeled in {OUTPUT_PATH}")
     elif GOLDEN_100_PATH.exists():
-        results_df = pd.read_parquet(GOLDEN_100_PATH)
+        results_df = read_parquet_safe(str(GOLDEN_100_PATH))
         n_done = len(results_df)
         print(f"Loaded {n_done} records from {GOLDEN_100_PATH}. Labeling records {n_done + 1} to {NUM_RECORDS}.")
     else:
