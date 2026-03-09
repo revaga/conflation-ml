@@ -57,19 +57,58 @@ def _get(key: str, default: str = "") -> str:
 _has_hf = bool(_get("HF_TOKEN") or _get("HUGGINGFACE_API_KEY"))
 _provider_default = "huggingface" if _has_hf else "local"
 SLM_PROVIDER = _get("SLM_PROVIDER", _provider_default).lower()
-if SLM_PROVIDER not in ("local", "huggingface"):
+if SLM_PROVIDER not in ("local", "huggingface", "ollama"):
     SLM_PROVIDER = "local"
 
 HF_TOKEN = _get("HF_TOKEN") or _get("HUGGINGFACE_API_KEY")
 HF_ROUTER_URL = "https://router.huggingface.co/v1"
 
+# Ollama (local OpenAI-compatible server for kimi-k2-instruct-0905)
+OLLAMA_BASE_URL = _get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+OLLAMA_API_KEY = _get("OLLAMA_API_KEY", "ollama")
+
 # Model name: use SLM_MODEL if set; otherwise default by provider
-_default_model = "google/gemma-3-1b-it" if SLM_PROVIDER == "local" else "HuggingFaceH4/zephyr-7b-beta"
+if SLM_PROVIDER == "local":
+    _default_model = "google/gemma-3-1b-it"
+elif SLM_PROVIDER == "huggingface":
+    _default_model = "HuggingFaceH4/zephyr-7b-beta"
+elif SLM_PROVIDER == "ollama":
+    _default_model = "kimi-k2-instruct-0905"
+else:
+    _default_model = "kimi-k2-instruct-0905"
+
 MODEL_NAME = _get("SLM_MODEL") or _default_model
 
 # Match golden_dataset_maker schema
 ATTR_ATTRS = ("name", "phone", "web", "address", "category")
 BOOKKEEPING_COLUMNS = ["golden_label"] + [f"attr_{a}_winner" for a in ATTR_ATTRS]
+
+
+# Prompt template for same-place reasoning (kimi-k2-instruct-0905 via Ollama)
+PROMPT_TEMPLATE = """
+Determine if these two business records refer to the same physical location.
+
+RULES:
+- If the confidence is over 0.5 there is a good chance they are the same place.
+- Focus on street number + street name.
+- Same ZIP code = same general area.
+- Suite/unit differences = SAME place.
+- Ignore category, brand, phone, website differences.
+- Use 0 for different places, 1 for same place.
+
+
+Record A:
+Name: {name}
+Address: {address_full}
+City: {locality}, {region} {postcode}
+Country: {country}
+
+Record B:
+Name: {base_name}
+Address: {base_address_full}
+City: {base_locality}, {base_region} {base_postcode}
+Country: {base_country}
+"""
 
 
 def _winner_str(w):
@@ -135,14 +174,36 @@ def get_display_values(row):
 
 
 def construct_prompt(row):
-    """Build a single prompt asking for better source per attribute (base/alt/both/none)."""
+    """Build a prompt that first frames same-place reasoning, then asks for per-attribute winners."""
     displays = get_display_values(row)
+    base_name, alt_name = displays["name"]
+    base_addr, alt_addr = displays["address"]
+
+    record_prompt = PROMPT_TEMPLATE.format(
+        # Treat the conflated record as Record A, base as Record B
+        name=alt_name,
+        address_full=alt_addr,
+        locality=row.get("locality") or "",
+        region=row.get("region") or "",
+        postcode=row.get("postcode") or "",
+        country=row.get("country") or "",
+        base_name=base_name,
+        base_address_full=base_addr,
+        base_locality=row.get("base_locality") or "",
+        base_region=row.get("base_region") or "",
+        base_postcode=row.get("base_postcode") or "",
+        base_country=row.get("base_country") or "",
+    )
+
     blocks = []
     for attr in ATTR_ATTRS:
         base_val, alt_val = displays[attr]
         blocks.append(f"  {attr}:  base = {base_val!r}   alt = {alt_val!r}")
     attr_block = "\n".join(blocks)
-    return f"""You are a data steward. For one place we have two records: "base" and "alt" (conflated). For each attribute below, choose the BETTER SOURCE: base, alt, both, or none.
+
+    return f"""{record_prompt}
+
+You are a data steward. For this same pair of records, we have two sources: "base" and "alt" (conflated). For each attribute below, choose the BETTER SOURCE: base, alt, both, or none.
 - base = base record's value is better or only valid
 - alt = alt record's value is better or only valid
 - both = equivalent or both acceptable
@@ -179,6 +240,10 @@ def get_client():
             print("WARNING: No Hugging Face token. Set HF_TOKEN or HUGGINGFACE_API_KEY in env or api_keys.env.")
             return None
         return OpenAI(api_key=HF_TOKEN, base_url=HF_ROUTER_URL)
+
+    if SLM_PROVIDER == "ollama":
+        # Use local Ollama server exposing an OpenAI-compatible API
+        return OpenAI(api_key=OLLAMA_API_KEY, base_url=OLLAMA_BASE_URL)
 
     return None
 
