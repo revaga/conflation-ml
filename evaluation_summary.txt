@@ -1,16 +1,16 @@
 Phase 4 Evaluation: Golden (truth) vs SLM predictions
-Truth: data/golden_dataset_200.parquet  |  SLM: data/phase3_slm_labeled.parquet
+Truth: data/golden_dataset_200.parquet  |  SLM: data/phase3_slm_labeledkimi.parquet
 Sample size (merged on id): 200
 
 --- Binary ---
-Accuracy: 77.5000%
-Precision: 0.9152  Recall: 0.8297  F1: 0.8703
-TP=151  FP=14  FN=31  TN=4
+Accuracy: 79.5000%
+Precision: 0.9434  Recall: 0.8242  F1: 0.8798
+TP=150  FP=9  FN=32  TN=9
 
 --- 4-class ---
-Accuracy: 69.0000%
-Macro F1: 0.2452
+Accuracy: 65.0000%
+Macro F1: 0.3444
 
 --- 3-class ---
-Accuracy: 53.5000%
-Disagreements (4-class): 62
+Accuracy: 48.5000%
+Disagreements (4-class): 70

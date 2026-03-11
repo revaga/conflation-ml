@@ -51,9 +51,10 @@ def _get(key: str, default: str = "") -> str:
     return os.getenv(key) or _keys_file.get(key, default)
 
 
-# Provider selection (Hugging Face only):
+# Provider selection:
 # - "local": AutoTokenizer + AutoModelForCausalLM on this machine (e.g. google/gemma-3-1b-it)
 # - "huggingface": HF_TOKEN + router.huggingface.co (OpenAI-compatible API)
+# - "ollama": OpenAI-compatible API (local or cloud, e.g. kimi-k2.5:cloud)
 _has_hf = bool(_get("HF_TOKEN") or _get("HUGGINGFACE_API_KEY"))
 _provider_default = "huggingface" if _has_hf else "local"
 SLM_PROVIDER = _get("SLM_PROVIDER", _provider_default).lower()
@@ -63,7 +64,7 @@ if SLM_PROVIDER not in ("local", "huggingface", "ollama"):
 HF_TOKEN = _get("HF_TOKEN") or _get("HUGGINGFACE_API_KEY")
 HF_ROUTER_URL = "https://router.huggingface.co/v1"
 
-# Ollama (local OpenAI-compatible server for kimi-k2-instruct-0905)
+# Ollama (OpenAI-compatible API: local server or cloud e.g. kimi-k2.5:cloud)
 OLLAMA_BASE_URL = _get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 OLLAMA_API_KEY = _get("OLLAMA_API_KEY", "ollama")
 
@@ -73,9 +74,9 @@ if SLM_PROVIDER == "local":
 elif SLM_PROVIDER == "huggingface":
     _default_model = "HuggingFaceH4/zephyr-7b-beta"
 elif SLM_PROVIDER == "ollama":
-    _default_model = "kimi-k2-instruct-0905"
+    _default_model = "kimi-k2.5:cloud"
 else:
-    _default_model = "kimi-k2-instruct-0905"
+    _default_model = "kimi-k2.5:cloud"
 
 MODEL_NAME = _get("SLM_MODEL") or _default_model
 
@@ -84,30 +85,14 @@ ATTR_ATTRS = ("name", "phone", "web", "address", "category")
 BOOKKEEPING_COLUMNS = ["golden_label"] + [f"attr_{a}_winner" for a in ATTR_ATTRS]
 
 
-# Prompt template for same-place reasoning (kimi-k2-instruct-0905 via Ollama)
-PROMPT_TEMPLATE = """
-Determine whether these two business records describe the same physical location.
-
-RULES:
-- Confidence > 0.5 suggests they are likely the same place.
-- Focus on street number and street name; these are the strongest signals.
-- Same ZIP/postcode = same general area; treat as supporting "same place."
-- Suite/unit/floor differences only = still the SAME place.
-- Ignore category, brand, phone, and website; they often differ for the same location.
-
-Output: 0 = different places, 1 = same place.
-
-Record A:
-Name: {name}
-Address: {address_full}
-City: {locality}, {region} {postcode}
-Country: {country}
-
-Record B:
-Name: {base_name}
-Address: {base_address_full}
-City: {base_locality}, {base_region} {base_postcode}
-Country: {base_country}
+# Reasoning rules only (no Record A/B template). Used as preamble before attribute classification.
+PROMPT_RULES = """
+When comparing two records, use this reasoning:
+- phone number with area code is better
+- website name that matches place name is better
+- address that is better formatted is better
+- category that matches place name is better
+- the non-empty value is better
 """
 
 
@@ -174,26 +159,8 @@ def get_display_values(row):
 
 
 def construct_prompt(row):
-    """Build a prompt that first frames same-place reasoning, then asks for per-attribute winners."""
+    """Build a prompt with rules reasoning, then per-attribute base/alt values and classification ask."""
     displays = get_display_values(row)
-    base_name, alt_name = displays["name"]
-    base_addr, alt_addr = displays["address"]
-
-    record_prompt = PROMPT_TEMPLATE.format(
-        # Treat the conflated record as Record A, base as Record B
-        name=alt_name,
-        address_full=alt_addr,
-        locality=row.get("locality") or "",
-        region=row.get("region") or "",
-        postcode=row.get("postcode") or "",
-        country=row.get("country") or "",
-        base_name=base_name,
-        base_address_full=base_addr,
-        base_locality=row.get("base_locality") or "",
-        base_region=row.get("base_region") or "",
-        base_postcode=row.get("base_postcode") or "",
-        base_country=row.get("base_country") or "",
-    )
 
     blocks = []
     for attr in ATTR_ATTRS:
@@ -201,9 +168,9 @@ def construct_prompt(row):
         blocks.append(f"  {attr}:  base = {base_val!r}   alt = {alt_val!r}")
     attr_block = "\n".join(blocks)
 
-    return f"""{record_prompt}
+    return f"""{PROMPT_RULES}
 
-You are a data steward. For this same pair of records, we have two sources: "base" and "alt" (conflated). For each attribute below, choose the BETTER SOURCE: base, alt, both, or none.
+You are a data steward. We have two sources for one place: "base" and "alt" (conflated). For each attribute below, choose the BETTER SOURCE: base, alt, both, or none.
 - base = base record's value is better or only valid
 - alt = alt record's value is better or only valid
 - both = equivalent or both acceptable

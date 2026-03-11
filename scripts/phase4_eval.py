@@ -15,7 +15,7 @@ from parquet_io import read_parquet_safe
 # Constants
 # ---------------------------------------------------------------------------
 GOLDEN_PATH = "data/golden_dataset_200.parquet"
-SLM_PATH = "data/phase3_slm_labeled.parquet"
+SLM_PATH = "data/phase3_slm_labeledkimi.parquet"
 ATTR_ATTRS = ("name", "phone", "web", "address", "category")
 # 4-class order: none=0, alt=1, base=2, both=3 (align with xgboost_multiclass)
 CLASS_ORDER_4 = ("none", "alt", "base", "both")
