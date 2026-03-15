@@ -2,14 +2,15 @@
 Validate phone number using phonenumbers library. Also return information about the phone number such as country.
 """
 import phonenumbers
+import logging
 from phonenumbers import NumberParseException, PhoneNumberFormat
 
+logger = logging.getLogger(__name__)
 
 def validate_phone_number(phone_number: str) -> tuple[bool, str]:
     """
     Given a phone number, return a tuple of (bool, str) where the bool is True if the phone number is valid
-    and False otherwise. The str is the country/region code of the phone number (e.g. "US", "GB").
-    Accepts str, int, or float; converts to string before parsing.
+    and False otherwise.
     """
     phone_number = str(phone_number).strip() if phone_number is not None else ""
     if not phone_number or phone_number.lower() in ("nan", "none"):
@@ -23,11 +24,9 @@ def validate_phone_number(phone_number: str) -> tuple[bool, str]:
     except NumberParseException as e:
         return False, f"Parse error: {str(e)}"
 
-
 def to_e164_if_valid(phone_number, region=None):
     """
-    If the number is valid (with optional default region), return E.164 string; else None.
-    Useful for comparing two numbers (e.g. one with country code, one without).
+    If the number is valid, return E.164 string; else None.
     """
     phone_number = str(phone_number).strip() if phone_number is not None else ""
     if not phone_number or phone_number.lower() in ("nan", "none"):
@@ -40,12 +39,9 @@ def to_e164_if_valid(phone_number, region=None):
     except NumberParseException:
         return None
 
-
 def try_with_region(phone_number: str, region_code: str) -> tuple[bool, str | None]:
     """
-    Try parsing the phone number with the given region (e.g. "US", "GB").
-    If valid, return (True, e164_string); otherwise (False, None).
-    Accepts str, int, or float for phone_number; converts to string before parsing.
+    Try parsing the phone number with the given region.
     """
     phone_number = str(phone_number).strip() if phone_number is not None else ""
     if not phone_number or phone_number.lower() in ("nan", "none") or not region_code:
@@ -59,17 +55,13 @@ def try_with_region(phone_number: str, region_code: str) -> tuple[bool, str | No
     except NumberParseException:
         return False, None
 
-
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     test_numbers = [
         "+1 650 253 0000",
         "+44 20 7946 0958",
-        "invalid",
-        "",
         "+1 555 123 4567",
-        "+33 1 42 86 83 00",
-        "+55 55 99999-5808",
     ]
     for number in test_numbers:
         valid, details = validate_phone_number(number)
-        print(f"Number: {number!r} | Valid: {valid} | Details: {details}")
+        logger.info(f"Number: {number!r} | Valid: {valid} | Details: {details}")

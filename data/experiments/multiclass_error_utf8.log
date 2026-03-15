@@ -1,0 +1,49 @@
+﻿.venv\Scripts\python.exe : 
+Traceback (most recent call 
+last):
+At line:1 char:1
++ .venv\Scripts\python.exe sc
+ripts\xgboost_multiclass.py 
+> multiclass_e ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~
+    + CategoryInfo           
+   : NotSpecified: (Traceba  
+  ck (most recent call las   
+ t)::String) [], RemoteEx    
+ception
+    + FullyQualifiedErrorId  
+   : NativeCommandError
+ 
+  File "C:\Users\revaa\neha-r
+eva-places-attribute-conflati
+on\scripts\xgboost_multiclass
+.py", line 30, in <module>
+    import xgboost as xgb
+  File "C:\Users\revaa\neha-r
+eva-places-attribute-conflati
+on\.venv\Lib\site-packages\xg
+boost\__init__.py", line 6, 
+in <module>
+    from . import tracker  # 
+noqa
+    ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\revaa\neha-r
+eva-places-attribute-conflati
+on\.venv\Lib\site-packages\xg
+boost\tracker.py", line 9, 
+in <module>
+    from .core import _LIB, 
+_check_call, 
+_deprecate_positional_args, 
+make_jcargs
+  File "C:\Users\revaa\neha-r
+eva-places-attribute-conflati
+on\.venv\Lib\site-packages\xg
+boost\core.py", line 39, in 
+<module>
+    import scipy.sparse
+SyntaxError: source code 
+string cannot contain null 
+bytes

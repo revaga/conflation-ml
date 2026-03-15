@@ -16,3 +16,5 @@ google-generativeai
 transformers
 torch
 accelerate
+diskcache
+pytest

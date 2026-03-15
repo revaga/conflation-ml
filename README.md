@@ -31,12 +31,24 @@ This repository works with **pre-matched pairs** of place records. Each row repr
 ```
 neha-reva-places-attribute-conflation/
 ├── data/
-│   ├── project_a_samples.parquet   # Main sample (~2,000 pre-matched pairs)
-│   └── sampledata.parquet          # Additional sample data
+│   ├── project_a_samples.parquet       # Raw sample data (~2,000 pairs)
+│   ├── phase1_processed.parquet        # Normalized & basic similarities
+│   ├── phase3_slm_labeled.parquet      # SLM-labeled attribute winners
+│   └── golden_dataset_200.parquet      # Hand-labeled truth set
 ├── scripts/
-│   └── inspect_parquet.py          # Dataset overview & stats (DuckDB)
-├── requirements.txt
-└── README.md
+│   ├── features.py                     # Single Source of Truth for feature engineering
+│   ├── labels.py                       # Centralized label maps & derivation logic
+│   ├── schema.py                       # Data validation contracts
+│   ├── parquet_io.py                   # Safe Parquet reading utility
+│   ├── validator_cache.py              # DiskCache for external API calls
+│   ├── slm_attribute_labeler.py        # LLM-based labeling script
+│   ├── xgboostbinary.py                # 2-stage XGBoost Classifier
+│   ├── xgboost_multiclass.py           # Multiclass XGBoost Classifier
+│   └── phase5_full_pipeline.py         # End-to-end evaluation pipeline
+├── tests/
+│   └── test_feature_parity.py          # Verification script for feature parity
+├── README.md
+└── requirements.txt
 ```
 
 ---

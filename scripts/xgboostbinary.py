@@ -18,14 +18,27 @@ import json
 import re
 import warnings
 import os
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from rapidfuzz import fuzz
-from website_validator import verify_website
-from phonenumber_validator import validate_phone_number
-from parquet_io import read_parquet_safe
+
+# Add scripts directory to sys.path to ensure absolute imports work
+scripts_dir = str(Path(__file__).parent.absolute())
+if scripts_dir not in sys.path:
+    sys.path.append(scripts_dir)
+
+try:
+    from website_validator import verify_website
+    from phonenumber_validator import validate_phone_number
+    from parquet_io import read_parquet_safe
+except ImportError:
+    from scripts.website_validator import verify_website
+    from scripts.phonenumber_validator import validate_phone_number
+    from scripts.parquet_io import read_parquet_safe
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -407,24 +420,32 @@ def apply_labels(df: pd.DataFrame) -> pd.DataFrame:
     else:
         print(f"  WARNING: {GOLDEN_PATH} not found")
 
-    # SLM labels for non-golden rows (training set) — from golden_label or attr_*_winner
+    # Quality-based labels for non-golden rows (training set)
+    # We prioritize attribute accuracy/richness over existence confidence.
     ng_mask = ~df["is_golden"]
-    if "golden_label" in df.columns:
-        slm_binary = df["golden_label"].apply(_truth_to_binary)
-        df.loc[ng_mask, LABEL_COL] = slm_binary[ng_mask]
-    # Fallback: derive from attr_*_winner
-    still_na = ng_mask & df[LABEL_COL].isna()
-    if still_na.any():
-        attr_cols = [f"attr_{a}_winner" for a in ("name", "phone", "web", "address", "category")]
-        if all(c in df.columns for c in attr_cols):
-            derived = df.loc[still_na].apply(_derive_4class_from_attr_winners, axis=1)
-            df.loc[still_na, LABEL_COL] = derived.apply(lambda x: 1.0 if x in ("alt", "both") else 0.0 if x in ("base", "none") else np.nan)
+
+    # Calculate Quality Score for Match and Base
+    # Weights: Completeness (richness) = 2.0, Validity = 1.0, Recency = 0.5
+    match_quality = (
+        (df["feat_match_completeness"] * 2.0) +
+        (df["feat_match_web_valid"] + df["feat_match_phone_valid"]) +
+        (df["feat_match_recency_days"].apply(lambda d: 1.0 if d < 365 else 0.0) * 0.5)
+    )
+    base_quality = (
+        (df["feat_base_completeness"] * 2.0) +
+        (df["feat_base_web_valid"] + df["feat_base_phone_valid"]) +
+        (df["feat_base_recency_days"].apply(lambda d: 1.0 if d < 365 else 0.0) * 0.5)
+    )
+
+    # If Match quality > Base quality -> 1.0 (accept), else 0.0 (keep base)
+    quality_binary = (match_quality > base_quality).astype(float)
+    df.loc[ng_mask, LABEL_COL] = quality_binary[ng_mask]
 
     n_train = int((~df["is_golden"] & df[LABEL_COL].notna()).sum())
     n_pos = int((df[LABEL_COL] == 1).sum())
     n_neg = int((df[LABEL_COL] == 0).sum())
     n_unlabeled = int(df[LABEL_COL].isna().sum())
-    print(f"  SLM training set (excluding golden): {n_train} rows | Total labels — Accept: {n_pos}, Keep_base: {n_neg}, Unlabeled: {n_unlabeled}")
+    print(f"  Heuristic training set (excluding golden): {n_train} rows | Total labels — Accept: {n_pos}, Keep_base: {n_neg}, Unlabeled: {n_unlabeled}")
     return df
 
 # ---------------------------------------------------------------------------

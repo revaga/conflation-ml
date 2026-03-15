@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "places-conflation"
+version = "0.1.0"
+description = "Places Attribute Conflation logic and models"
+authors = [
+    { name = "Terraforma Team" }
+]
+dependencies = [
+    "pandas",
+    "numpy",
+    "rapidfuzz",
+    "xgboost",
+    "pyarrow",
+    "fastparquet",
+    "duckdb",
+    "requests",
+    "phonenumbers",
+    "openai",
+    "diskcache",
+    "pytest"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["scripts*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

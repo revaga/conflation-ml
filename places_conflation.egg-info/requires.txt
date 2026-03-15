@@ -1,0 +1,12 @@
+pandas
+numpy
+rapidfuzz
+xgboost
+pyarrow
+fastparquet
+duckdb
+requests
+phonenumbers
+openai
+diskcache
+pytest

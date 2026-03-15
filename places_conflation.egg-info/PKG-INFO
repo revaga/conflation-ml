@@ -1,0 +1,19 @@
+Metadata-Version: 2.4
+Name: places-conflation
+Version: 0.1.0
+Summary: Places Attribute Conflation logic and models
+Author: Terraforma Team
+License-File: LICENSE
+Requires-Dist: pandas
+Requires-Dist: numpy
+Requires-Dist: rapidfuzz
+Requires-Dist: xgboost
+Requires-Dist: pyarrow
+Requires-Dist: fastparquet
+Requires-Dist: duckdb
+Requires-Dist: requests
+Requires-Dist: phonenumbers
+Requires-Dist: openai
+Requires-Dist: diskcache
+Requires-Dist: pytest
+Dynamic: license-file
