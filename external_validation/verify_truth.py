@@ -53,6 +53,25 @@ def _norm_web(val) -> str:
     return normalize_website(val) or ""
 
 
+def _first_url(val) -> str:
+    """Extract one URL from list/JSON array string/plain string so web comparison uses one domain."""
+    if val is None or (isinstance(val, float) and str(val) == "nan"):
+        return ""
+    if isinstance(val, list):
+        return (val[0] if val and isinstance(val[0], str) else str(val[0]) if val else "") or ""
+    s = str(val).strip()
+    if not s:
+        return ""
+    if s.startswith("["):
+        try:
+            arr = json.loads(s)
+            if isinstance(arr, list) and arr:
+                return str(arr[0]).strip()
+        except Exception:
+            pass
+    return s
+
+
 def _norm_str(val) -> str:
     if val is None or (isinstance(val, float) and str(val) == "nan"):
         return ""
@@ -234,7 +253,12 @@ def verify(input_path: Path) -> None:
                     golden_raw = _primary_category_from_row(row, base_col)
                 if not golden_raw and alt_col in row.index:
                     golden_raw = _primary_category_from_row(row, alt_col)
-            norm_golden = _normalize_value(attr_key, golden_raw)
+            if attr_key == "web":
+                # base/alt can be JSON array strings; use first URL then normalize
+                golden_raw = _golden_value(row, golden_winner_col, "base_websites", "websites")
+                norm_golden = _norm_web(_first_url(golden_raw))
+            else:
+                norm_golden = _normalize_value(attr_key, golden_raw)
             df.at[idx, sim_col] = _similarity(attr_key, norm_truth, norm_golden)
         mean_sim = df[sim_col].mean()
         print(f"  {attr_key:10} mean similarity (0-100): {mean_sim:.2f}")
@@ -290,15 +314,19 @@ def verify(input_path: Path) -> None:
         n_base = n_alt = n_both = n_neither = 0
         for idx, row in df.iterrows():
             norm_truth = _norm_truth_value(row, attr_key, truth_value_col)
-            base_raw = row.get(base_col) if base_col in row.index else ""
-            alt_raw = row.get(alt_col) if alt_col in row.index else ""
+            if attr_key == "web":
+                base_raw = _first_url(row.get("base_websites"))
+                alt_raw = _first_url(row.get("websites"))
+            else:
+                base_raw = row.get(base_col) if base_col in row.index else ""
+                alt_raw = row.get(alt_col) if alt_col in row.index else ""
             if attr_key == "category":
                 if not base_raw or (isinstance(base_raw, str) and base_raw.strip().startswith("{")):
                     base_raw = _primary_category_from_row(row, base_col) or base_raw
                 if not alt_raw or (isinstance(alt_raw, str) and alt_raw.strip().startswith("{")):
                     alt_raw = _primary_category_from_row(row, alt_col) or alt_raw
-            norm_base = _normalize_value(attr_key, base_raw)
-            norm_alt = _normalize_value(attr_key, alt_raw)
+            norm_base = _norm_web(base_raw) if attr_key == "web" else _normalize_value(attr_key, base_raw)
+            norm_alt = _norm_web(alt_raw) if attr_key == "web" else _normalize_value(attr_key, alt_raw)
             match_base = norm_truth == norm_base
             match_alt = norm_truth == norm_alt
             if match_base and match_alt:

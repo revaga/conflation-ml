@@ -1,10 +1,16 @@
 import json
 import os
 import re
+import sys
 import time
 import logging
 import argparse
 from pathlib import Path
+
+# Allow "from scripts.parquet_io import ..." when run as python scripts/slm_attribute_labeler.py
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 import pandas as pd
 from openai import OpenAI
@@ -14,7 +20,7 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- Config ---
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = _PROJECT_ROOT
 DATA_DIR = PROJECT_ROOT / "data"
 INPUT_PATH = DATA_DIR / "phase1_processed.parquet"
 OUTPUT_PATH = DATA_DIR / "phase3_slm_labeled.parquet"
