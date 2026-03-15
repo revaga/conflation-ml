@@ -9,6 +9,7 @@ scikit-learn
 optuna>=3.0
 requests
 phonenumbers
+duckduckgo-search
 beautifulsoup4
 deepparse  # optional: needs Microsoft C++ Build Tools on Windows (https://visualstudio.microsoft.com/visual-cpp-build-tools/)
 openai

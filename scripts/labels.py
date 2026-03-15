@@ -5,6 +5,8 @@ import numpy as np
 LABEL_3CLASS = ("alt", "both", "base")
 LABEL_4CLASS = ("none", "alt", "base", "both")
 ATTR_ATTRS = ("name", "phone", "web", "address", "category")
+# Attributes used to decide record-level "none": only name, address, website
+ATTRS_FOR_NONE = ("name", "address", "web")
 
 # Vocabulary mapping: 'alt' in the golden data corresponds to 'alt' in model outputs/evals
 FOUR_TO_THREE = {
@@ -33,7 +35,7 @@ def recalculate_4class_label(row: pd.Series, suffix: str = "") -> str:
     """
     Compute record-level 4-class label from 5 attr_*_winner columns.
     Uses an epsilon-based consistency scoring approach:
-    - If majority none (>=3) -> none
+    - If all three of name, address, website are none -> none
     - If n_both > abs(n_alt - n_base) -> both (agreement wins over slight winner)
     - Else majority base vs alt
     """
@@ -43,12 +45,17 @@ def recalculate_4class_label(row: pd.Series, suffix: str = "") -> str:
         w = _normalize_attr_winner(row.get(col))
         counts[w] += 1
 
-    n_none = counts["none"]
+    # "none" only based on name, address, website (all 3 must be none)
+    n_none_name_addr_web = sum(
+        1 for attr in ATTRS_FOR_NONE
+        if _normalize_attr_winner(row.get(f"attr_{attr}_winner{suffix}")) == "none"
+    )
+    n_none = n_none_name_addr_web
     n_both = counts["both"]
     n_base = counts["base"]
     n_alt = counts["alt"]
 
-    if n_none >= 3:
+    if n_none >= 3:  # all 3 of name, address, web are none
         return "none"
     
     delta = n_alt - n_base

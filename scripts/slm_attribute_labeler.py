@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 
 # --- Config ---
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-INPUT_PATH = PROJECT_ROOT / "data" / "phase1_processed.parquet"
-OUTPUT_PATH = PROJECT_ROOT / "data" / "phase3_slm_labeled.parquet"
+DATA_DIR = PROJECT_ROOT / "data"
+INPUT_PATH = DATA_DIR / "phase1_processed.parquet"
+OUTPUT_PATH = DATA_DIR / "phase3_slm_labeled.parquet"
 SAVE_EVERY_N = 50
 MAX_RETRIES = 3
 INITIAL_BACKOFF = 2.0
@@ -45,7 +46,7 @@ def _get(key: str, default: str = "") -> str:
     """Get key from env, then from api_keys.env."""
     return os.getenv(key) or _keys_file.get(key, default)
 
-# Provider selection
+# Provider selection (can be overridden by argparse). No OpenAI API key used.
 _has_hf = bool(_get("HF_TOKEN") or _get("HUGGINGFACE_API_KEY"))
 _provider_default = "huggingface" if _has_hf else "local"
 SLM_PROVIDER = _get("SLM_PROVIDER", _provider_default).lower()
@@ -75,7 +76,7 @@ MODEL_NAME = _get("SLM_MODEL") or _default_model
 ATTR_ATTRS = ("name", "phone", "web", "address", "category")
 BOOKKEEPING_COLUMNS = ["golden_label"] + [f"attr_{a}_winner" for a in ATTR_ATTRS]
 
-# Reasoning rules only
+# Reasoning rules (used in basic prompt)
 PROMPT_RULES = """
 When comparing two records, use this reasoning:
 - phone number with area code is better
@@ -84,6 +85,23 @@ When comparing two records, use this reasoning:
 - category that matches place name is better
 - the non-empty value is better
 """
+
+# Optimized prompt for API models (clearer structure, stricter output, fewer "none")
+PROMPT_OPENAI_OPTIMIZED = """You are a data steward comparing two records for the same place: "base" (authoritative) and "alt" (conflated). For each attribute, choose exactly one: base, alt, both, or none.
+
+Rules:
+- base = base value is better or only valid
+- alt = alt value is better or only valid  
+- both = values are equivalent or both acceptable
+- none = both empty or both unusable (use sparingly; prefer base/alt when one is clearly better)
+
+Prefer base or alt when one value is clearly better; use "both" when equivalent. Use "none" only when both are empty or invalid.
+
+Attribute values (base vs alt):
+{attr_block}
+
+Output: a single JSON object only. No markdown, no explanation. Use exactly these keys and values.
+Example: {{"name":"base","phone":"both","web":"alt","address":"base","category":"both","reason":"One sentence."}}"""
 
 def _winner_str(w):
     """Normalize winner to 'base', 'alt', 'both', or 'none' for bookkeeping."""
@@ -164,6 +182,18 @@ Attribute values (base vs alt):
 Respond with ONLY a JSON object (no markdown). Use exactly these keys and values in {{"base","alt","both","none"}} per attribute. Optionally include "golden_label" (one of: base, alt, abstain) and "reason" (short sentence).
 Example: {{"name":"both","phone":"base","web":"alt","address":"base","category":"both","golden_label":"base","reason":"..."}}"""
 
+
+def construct_prompt_optimized(row):
+    """Optimized prompt for API models: clearer structure, fewer 'none' outputs."""
+    displays = get_display_values(row)
+    blocks = []
+    for attr in ATTR_ATTRS:
+        base_val, alt_val = displays[attr]
+        blocks.append(f"  {attr}:  base = {base_val!r}   alt = {alt_val!r}")
+    attr_block = "\n".join(blocks)
+    return PROMPT_OPENAI_OPTIMIZED.format(attr_block=attr_block)
+
+
 def get_client():
     """Return a client object appropriate for the selected provider."""
     if SLM_PROVIDER == "local":
@@ -210,8 +240,10 @@ def _extract_json(text: str):
             pass
     raise ValueError("No valid JSON found in model output")
 
-def call_slm(client, prompt, model=MODEL_NAME):
+def call_slm(client, prompt, model=None):
     """Call SLM; return parsed JSON or empty dict on failure."""
+    if model is None:
+        model = MODEL_NAME
     if not client:
         return {
             "name": "none", "phone": "none", "web": "none", "address": "none", "category": "none",
@@ -250,11 +282,12 @@ def call_slm(client, prompt, model=MODEL_NAME):
             content = tokenizer.decode(outputs[0][input_ids.shape[1]:], skip_special_tokens=True).strip()
             return _extract_json(content)
             
-        # Cloud providers
+        # Cloud / API providers (openai, ollama, huggingface)
+        system = "You output only valid JSON with keys: name, phone, web, address, category. Each value must be one of: base, alt, both, none. No markdown."
         kwargs = {
             "model": model,
             "messages": [
-                {"role": "system", "content": "You output only valid JSON with keys: name, phone, web, address, category."},
+                {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
         }
@@ -264,12 +297,12 @@ def call_slm(client, prompt, model=MODEL_NAME):
     except Exception as e:
         raise RuntimeError(str(e))
 
-def call_slm_with_retries(client, prompt, model=MODEL_NAME):
+def call_slm_with_retries(client, prompt, model=None):
     """Call SLM with exponential backoff."""
     backoff = INITIAL_BACKOFF
     for attempt in range(MAX_RETRIES):
         try:
-            return call_slm(client, prompt, model=model)
+            return call_slm(client, prompt, model=model or MODEL_NAME)
         except Exception as e:
             if attempt == MAX_RETRIES - 1:
                 return {"reason": f"Error: {e}"}
@@ -294,7 +327,10 @@ def verify_model_responds(client, sample_row=None) -> bool:
     if client is None:
         logger.error("Verification failed: no API client.")
         return False
-    prompt = construct_prompt(sample_row) if sample_row is not None else "Test response with JSON."
+    if sample_row is not None:
+        prompt = construct_prompt(sample_row)
+    else:
+        prompt = "Test response with JSON."
     try:
         raw = call_slm(client, prompt)
         parsed = parse_slm_response(raw)
@@ -313,19 +349,42 @@ def _save_results(df: pd.DataFrame, path: Path) -> None:
     df[ordered].to_parquet(path, index=False)
 
 def main():
-    logger.info(f"SLM provider: {SLM_PROVIDER}  |  model: {MODEL_NAME}")
+    global SLM_PROVIDER, MODEL_NAME, OUTPUT_PATH
+    parser = argparse.ArgumentParser(description="Label phase1 records with SLM attribute winners.")
+    parser.add_argument("--output", type=str, default=None, help="Output parquet path (default: data/phase3_slm_labeled.parquet)")
+    parser.add_argument("--provider", type=str, default=None, choices=["local", "huggingface", "ollama"], help="SLM provider (overrides env)")
+    parser.add_argument("--model", type=str, default=None, help="Model name (e.g. gpt-4o-mini)")
+    args = parser.parse_args()
+    if args.output is not None:
+        OUTPUT_PATH = Path(args.output)
+        if not OUTPUT_PATH.is_absolute():
+            OUTPUT_PATH = PROJECT_ROOT / OUTPUT_PATH
+    if args.provider is not None:
+        SLM_PROVIDER = args.provider
+    if args.model is not None:
+        MODEL_NAME = args.model
+    else:
+        # When provider is overridden, use that provider's default model
+        if args.provider == "ollama":
+            MODEL_NAME = "llama3.2"  # common local Ollama model; override with --model if needed
+        elif args.provider == "huggingface":
+            MODEL_NAME = _get("SLM_MODEL") or "HuggingFaceH4/zephyr-7b-beta"
+        elif args.provider == "local":
+            MODEL_NAME = _get("SLM_MODEL") or "google/gemma-3-1b-it"
+
+    logger.info(f"SLM provider: {SLM_PROVIDER}  |  model: {MODEL_NAME}  |  output: {OUTPUT_PATH}")
     if not INPUT_PATH.exists():
         logger.error(f"{INPUT_PATH} not found.")
         return
-    
+
     df = read_parquet_safe(str(INPUT_PATH))
     results_df = read_parquet_safe(str(OUTPUT_PATH)) if OUTPUT_PATH.exists() else pd.DataFrame()
     labeled_ids = set(results_df["id"].tolist()) if not results_df.empty else set()
-    
+
     df_remaining = df[~df["id"].isin(labeled_ids)].copy()
     to_process = len(df_remaining)
     logger.info(f"Process strategy: {to_process} / {len(df)} remaining")
-    
+
     if to_process == 0:
         logger.info("Nothing to do.")
         return
@@ -334,10 +393,11 @@ def main():
     if not verify_model_responds(client, df_remaining.iloc[0] if not df_remaining.empty else None):
         return
 
+    use_optimized_prompt = False  # Set True for providers that use the optimized prompt
     batch = []
     done_in_run = 0
     for idx, row in df_remaining.iterrows():
-        prompt = construct_prompt(row)
+        prompt = construct_prompt_optimized(row) if use_optimized_prompt else construct_prompt(row)
         raw = call_slm_with_retries(client, prompt)
         parsed = parse_slm_response(raw)
         
