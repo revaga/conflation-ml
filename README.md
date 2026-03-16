@@ -1,132 +1,251 @@
-# Places Attribute Conflation
+## Places Attribute Conflation (ML)
 
-**Project A · Winter 2026 · CRWN 102**
+Creating a single reliable record from multiple location sources using a mix of **rule-based logic**, **tree-based ML models**, and **small/large language models (SLMs/LLMs)**.
 
-Creating a single reliable record from multiple location sources.
-
----
-
-## Overview
-
-Real-world places often appear in multiple datasets with inconsistent, outdated, or conflicting information. This project tackles the problem of **attribute-level conflation**: given multiple representations of the same place, how do we decide which attributes (phone, website, email, etc.) are the most accurate?
-
-Our goal is to produce a high-quality golden dataset and evaluate different strategies—rule-based logic vs. machine learning—for selecting the best attributes.
-
-This project is developed as part of coursework at the University of California, Santa Cruz, in partnership with the [Overture Maps Foundation](https://overturemaps.org/), and is motivated by the structure and constraints of the Overture Maps Places dataset.
+This repository builds and evaluates attribute-level conflation models over pre-matched place pairs, producing a hand-labeled golden set (200 rows), synthetic extensions, and unified metrics comparing many methods side by side.
 
 ---
 
-### Data Context
+### Problem
 
-This repository works with **pre-matched pairs** of place records. Each row represents a conflation: one place (the *base*) merged with attributes from other sources to produce a conflated record. We use this data to understand and evaluate how well attributes from different datasets can be combined into a single, trustworthy place entry.
+Real‑world places often appear in multiple datasets with inconsistent, outdated, or conflicting attributes (phone, website, address, category, etc.).  
+Given a **base** record and an **alternate/conflated** record for the same place, we want to decide, per attribute, which side is more trustworthy and what the final combined record should be.
 
-### Team
+The project focuses on:
 
-**Neha Ashwin, Reva Agarwal**
+- **Per‑attribute winners**: `base`, `alt`, `both`, `none` (and `real` in external validation).
+- **Record‑level labels**: 2‑class (base vs alt), 3‑class (base / both / alt), and 4‑class (none / alt / base / both).
+- **Unified evaluation**: comparing XGBoost, Random Forest, SLMs, and rule-based / external pipelines on a consistent golden dataset.
 
 ---
 
-## Project Structure
+### Data Overview
+
+All core datasets live under `data/`:
+
+- **Golden / labels**
+  - `golden_dataset_200.parquet`: primary hand‑labeled golden set (attribute winners + record‑level labels).
+  - `golden_dataset_100_aligned.parquet`: aligned subset used for Golden‑100 metrics.
+  - `phase3_slm_labeled*.parquet`: SLM‑labeled per‑attribute winners and 4‑class labels (Gemma3, Kimi, GPT‑4o mini).
+- **Synthetic**
+  - `synthetic_4class_golden.parquet`: synthetic 4‑class golden labels derived from golden 200.
+  - `synthetic_4class_kimi.parquet`: synthetic labels created with Kimi (`create_synthetic_4class_*`).
+- **Model outputs**
+  - `xgboost_results.parquet`, `xgboost_multiclass_results.parquet`, `xgboost_binary_results.parquet`
+  - `xgboost_per_attr_results.parquet`, `xgboost_per_attr_ensemble_results.parquet`
+  - `randomforest_binary_results.parquet`
+- **External / rule‑based truth**
+  - `ground_truth_google_golden.parquet`, `ground_truth_scrape_golden.parquet`
+  - `ground_truth_google_no_fallback.parquet`, `ground_truth_scrape_no_fallback.parquet`
+  - `ground_truth_rule_based.parquet`, `rule_based_100.parquet`
+
+Each row is a **pre‑matched pair** of records. Columns without a prefix refer to the conflated/alternate record; `base_`‑prefixed columns refer to the base record (e.g., `phones` vs `base_phones`, `addresses` vs `base_addresses`).
+
+---
+
+### Repository Layout
 
 ```
-neha-reva-places-attribute-conflation/
-├── data/
-│   ├── project_a_samples.parquet       # Raw sample data (~2,000 pairs)
-│   ├── phase1_processed.parquet        # Normalized & basic similarities
-│   ├── phase3_slm_labeled.parquet      # SLM-labeled attribute winners
-│   └── golden_dataset_200.parquet      # Hand-labeled truth set
+conflation-ml/
+├── data/                      # Golden datasets, synthetic labels, model outputs, external truth
 ├── scripts/
-│   ├── features.py                     # Single Source of Truth for feature engineering
-│   ├── labels.py                       # Centralized label maps & derivation logic
-│   ├── schema.py                       # Data validation contracts
-│   ├── parquet_io.py                   # Safe Parquet reading utility
-│   ├── validator_cache.py              # DiskCache for external API calls
-│   ├── slm_attribute_labeler.py        # LLM-based labeling script
-│   ├── xgboostbinary.py                # 2-stage XGBoost Classifier
-│   ├── xgboost_multiclass.py           # Multiclass XGBoost Classifier
-│   └── phase5_full_pipeline.py         # End-to-end evaluation pipeline
-├── tests/
-│   └── test_feature_parity.py          # Verification script for feature parity
-├── README.md
-└── requirements.txt
+│   ├── phase1_data_prep.py    # Initial cleaning and normalization
+│   ├── phase2_similarity.py   # Similarity features over base vs alt attributes
+│   ├── features.py            # Single source of truth for feature engineering
+│   ├── labels.py              # Label schemes, mapping between 2/3/4‑class, attr_*_winner logic
+│   ├── schema.py              # Data schema and validation helpers
+│   ├── parquet_io.py          # Safe Parquet reading / writing
+│   ├── normalization.py       # Phone / web / address normalization utilities
+│   ├── phonenumber_validator.py
+│   ├── website_validator.py
+│   ├── validator_cache.py     # DiskCache helpers for external calls
+│   ├── golden_dataset_maker.py
+│   ├── slm_attribute_labeler.py
+│   ├── finetune_gemma3_attr_lora.py
+│   ├── create_synthetic_4class_golden.py
+│   ├── create_synthetic_4class_kimi.py
+│   ├── generate_negatives.py
+│   ├── xgboostbinary.py
+│   ├── xgboost_multiclass.py
+│   ├── xgboost_binary_alt_base.py
+│   ├── randomforest_binary_alt_base.py
+│   ├── phase4_eval.py
+│   ├── phase5_full_pipeline.py
+│   ├── pipeline_eval.py
+│   ├── final_eval.py
+│   ├── run_phase3_ollama_and_hf.py
+│   ├── run_all_for_metrics.py # Orchestrates all pipelines needed for unified metrics
+│   ├── unified_metrics_golden200.py
+│   ├── inspect_parquet.py
+│   ├── compare_parquet_datasets.py
+│   ├── diff_parquet.py
+│   ├── detect_data_drift.py
+│   ├── show_golden_columns.py
+│   └── api_conflator.py
+├── external_validation/
+│   ├── compare.py
+│   └── README.md              # Detailed docs for Google / scrape / rule-based truth pipelines
+├── reports/
+│   ├── metrics_summary_golden200.md
+│   └── metrics_summary_golden100.md
+├── scripts/_archive/DEPRECATED.md
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
-## Exploring the Data
+## Setup
 
-From the project root:
+- **Python**: 3.10+ recommended.
+- **Install dependencies** (from repo root):
 
 ```bash
-source overture/bin/activate
-python scripts/project_data.py
+python -m venv .venv
+. .venv/Scripts/activate  # on Windows
+# or: source .venv/bin/activate  # on macOS/Linux
+pip install -r requirements.txt
 ```
 
-This prints a dataset overview including:
-
-- **Schema** — All columns and types
-- **Row count** — Total records
-- **Null counts** — Which attributes are often missing
-- **Confidence distribution** — Conflated vs base record confidence
-- **Sample rows** — Example key attributes
-- **Uniqueness** — `id` and `base_id` cardinality
+Some pipelines require API keys (see below for external validation and SLM labeling).
 
 ---
 
-## Data Schema
+## Core Concepts
 
-Each row is a pre-matched pair. Columns without a prefix come from the **conflated** record; columns with the `base_` prefix come from the **base** (original) place record.
+- **Attributes**: phone, web, address, category (and others for internal features).
+- **Per‑attribute winner** (`attr_*_winner`): which side is correct (`base`, `alt`, `both`, `none`, or `real` in external truth).
+- **Record‑level labels**:
+  - **2‑class**: `base` vs `alt` (alt = “conflated is better or at least as good”).
+  - **3‑class**: `base` / `both` / `alt`.
+  - **4‑class**: `none` / `alt` / `base` / `both`.
+- **Methods compared**:
+  - Rule‑based (no external data).
+  - Google Maps / Places and web scraping pipelines.
+  - XGBoost and Random Forest baselines.
+  - SLM / LLM attribute labelers (Gemma3 4B, Kimi, GPT‑4o mini) and a small fine‑tuned model.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | VARCHAR | Conflated record ID |
-| `base_id` | VARCHAR | Base place record ID |
-| `sources` | VARCHAR | JSON array of contributing sources (e.g., meta, msft) |
-| `names` | VARCHAR | Conflated names (JSON: `primary`, `alternate`) |
-| `base_names` | VARCHAR | Base names |
-| `categories` | VARCHAR | Conflated categories (e.g., `shipping_center`, `post_office`) |
-| `base_categories` | VARCHAR | Base categories |
-| `confidence` | DOUBLE | Conflation confidence score |
-| `base_confidence` | DOUBLE | Base record confidence |
-| `websites` | VARCHAR | Website URLs |
-| `base_websites` | VARCHAR | Base websites |
-| `socials` | VARCHAR | Social media links |
-| `base_socials` | VARCHAR | Base socials |
-| `emails` | INTEGER | Email count (often sparse) |
-| `base_emails` | VARCHAR | Base emails |
-| `phones` | VARCHAR | Phone numbers |
-| `base_phones` | VARCHAR | Base phones |
-| `brand` | VARCHAR | Brand info |
-| `base_brand` | VARCHAR | Base brand |
-| `addresses` | VARCHAR | Conflated address (JSON: freeform, locality, region, etc.) |
-| `base_addresses` | VARCHAR | Base addresses |
-| `base_sources` | VARCHAR | Base source metadata |
-
-### Key Concepts
-
-- **Base record** — The original place from one dataset (e.g., Microsoft); has `base_*` columns.
-- **Conflated record** — The merged result, combining attributes from multiple sources; non-prefixed columns.
-- **Confidence** — Indicates the confidence that a place exists. Base confidence is typically ~0.77.
+The logic for label mapping and recomputing record‑level labels from per‑attribute winners lives in `scripts/labels.py`.
 
 ---
 
-## Phase 1: Preprocessing
+## Running the Main Pipelines
 
-## Phase 2: Feature Engineering
+### 1. Run all pipelines needed for metrics
 
-## Phase 3: Labeling
+From the repo root:
 
-## Phase 4: Model Training
+```bash
+python scripts/run_all_for_metrics.py
+# or to force re‑run everything, ignoring existing outputs:
+python scripts/run_all_for_metrics.py --force
+```
 
-## Phase 5: Evaluation
+This script:
 
-## XGBoost
-Phone number format validation with phonenumber python library and country codes
-Website existence validation with https GET request
+- Ensures `data/golden_dataset_200.parquet` exists.
+- Runs synthetic generation, all XGBoost / Random Forest baselines, rule‑based logic, Google, scrape, and `phase5_full_pipeline.py` as needed.
+- Skips any pipeline where the output Parquet is newer than the golden (unless `--force` is given).
 
+### 2. Compute unified metrics and write reports
+
+```bash
+python scripts/unified_metrics_golden200.py --report
+```
+
+This:
+
+- Loads `golden_dataset_200.parquet` and `synthetic_4class_golden.parquet` (if present).
+- Computes:
+  - 3‑class metrics vs golden 200.
+  - 4‑class metrics vs synthetic 4‑class golden.
+  - Binary metrics vs 2‑class labels.
+  - Per‑attribute winner agreement and accuracy.
+  - Value similarity vs golden using external truth parquets.
+- Writes:
+  - CSVs under `reports/` (e.g., `unified_metrics_3class.csv`, `unified_metrics_4class.csv`, `unified_metrics_binary.csv`).
+  - A human‑readable summary markdown: `reports/metrics_summary_golden200.md`.
+
+To run on a subset (e.g., Golden‑100):
+
+```bash
+python scripts/unified_metrics_golden200.py --golden-limit 100 --report
+```
+
+This writes suffixed outputs such as `metrics_summary_golden100.md`.
+
+---
+
+## External Validation Pipelines
+
+External validation uses **real‑world data** (Google Places API, web scraping + search, or pure rule‑based logic) to produce `truth_*_winner` and `truth_*_value` columns per attribute.
+
+- Documentation and commands live in `external_validation/README.md`.
+- Typical usage (from repo root):
+
+```bash
+python external_validation/fetch_truth_google.py --limit 200
+python external_validation/fetch_truth_scrape.py --limit 200
+python external_validation/rule_based_logic.py
+```
+
+These produce:
+
+- `data/ground_truth_google_golden.parquet`
+- `data/ground_truth_scrape_golden.parquet`
+- `data/ground_truth_rule_based.parquet`
+
+They are then consumed by `scripts/unified_metrics_golden200.py` for similarity and per‑attribute agreement analyses.
+
+**Env / config**:
+
+- Google Places requires `GOOGLE_PLACES_API_KEY` in your environment or in `api_keys.env` at the repo root.
+- See `external_validation/README.md` for details and caveats about scraping/search ToS.
+
+---
+
+## SLM / LLM Labeling
+
+Per‑attribute winners and record‑level labels can be generated using SLMs / LLMs:
+
+- `scripts/slm_attribute_labeler.py`: prompts a model (local or hosted) to label each row.
+- `scripts/run_phase3_ollama_and_hf.py`: helper for running multiple SLM configurations and saving labeled Parquets.
+- `scripts/finetune_gemma3_attr_lora.py`: example of fine‑tuning Gemma3 for this attribute‑labeling task.
+
+The outputs are `phase3_slm_labeled*.parquet` files in `data/`, which are picked up automatically by `unified_metrics_golden200.py`.
+
+---
+
+## Inspecting and Debugging Data
+
+Helpful utility scripts (run from repo root):
+
+- `python scripts/inspect_parquet.py --path data/golden_dataset_200.parquet`
+- `python scripts/compare_parquet_datasets.py --a data/xgboost_results.parquet --b data/xgboost_multiclass_results.parquet`
+- `python scripts/diff_parquet.py --a ... --b ...`
+- `python scripts/detect_data_drift.py`
+- `python scripts/show_golden_columns.py`
+
+These are designed for quick sanity checks while iterating on features, labels, and pipelines.
+
+---
 
 ## Schema Reference
 
-Overture Places schema (field types, structure, and definitions):
+The project is motivated by and aligned with the Overture Places schema. For field types, structure, and definitions, see:
 
-**[Overture Places Schema](https://docs.overturemaps.org/schema/reference/places/place/)**
+- **Overture Places schema**: `https://docs.overturemaps.org/schema/reference/places/place/`
+
+Columns in the working Parquet files are adapted for ML (e.g., normalized phone / web / address fields, similarity scores, and derived labels), but the underlying semantics follow the Overture definitions.
+
+---
+
+## Repro Checklist
+
+1. **Create and activate a virtual environment**, then `pip install -r requirements.txt`.
+2. Ensure `data/golden_dataset_200.parquet` exists (or generate / copy it into `data/`).
+3. (Optional) Configure external validation (`GOOGLE_PLACES_API_KEY`, scraping environment).
+4. Run `python scripts/run_all_for_metrics.py` to generate all model and truth outputs.
+5. Run `python scripts/unified_metrics_golden200.py --report` to produce metrics CSVs and markdown reports in `reports/`.
+6. Inspect `reports/metrics_summary_golden200.md` (and `metrics_summary_golden100.md` if using a subset) for headline results across all methods.
+
