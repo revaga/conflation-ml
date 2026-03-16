@@ -1,9 +1,8 @@
 """
 Stage 2 (Refiner) 3-Class XGBoost Model
 =====================================================================================
-Trains a 3-class classifier ('base', 'alt', 'both') to evaluate records that pass the Stage 1 filter.
-Incorporates "Hard Nones" (predicted 'none' with low confidence by the 4-class model) labeled as 'base'
-to teach the model healthy skepticism.
+Trains a 3-class classifier ('base', 'alt', 'both') on records with 4-class label in {alt, base, both} only.
+Rows with label 'none' are excluded from training (no none considerations).
 """
 
 import os
@@ -27,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 # --- Constants ---
 INPUT_PATH = "data/phase3_slm_labeled.parquet"
-STAGE1_RESULTS_PATH = "data/xgboost_multiclass_results.parquet"
 GOLDEN_PATH = "data/golden_dataset_200.parquet"
 OUTPUT_MODEL_PATH = "data/models/refiner_3class.json"
 RANDOM_STATE = 42
@@ -55,27 +53,9 @@ def main():
     # 2. Apply Truth Labels
     df[LABEL_COL] = df.apply(recalculate_4class_label, axis=1)
 
-    # 3. Incorporate "Hard Nones" from Stage 1 Model
-    # We load the predictions from the 4-class model to find records it thought were 'none' but wasn't very sure.
-    if os.path.exists(STAGE1_RESULTS_PATH):
-        s1_df = read_parquet_safe(STAGE1_RESULTS_PATH, columns=["id", "xgb_4class_proba_none"])
-        df = df.merge(s1_df, on="id", how="left")
-        
-        # Define a "Hard None" as something that is truly 'none' but the model gave a low none probability
-        # Or simply all 'none' rows where P(none) < 0.85 (meaning they would slip through the cascade filter)
-        hard_none_mask = (df[LABEL_COL] == 'none') & (df['xgb_4class_proba_none'].notna()) & (df['xgb_4class_proba_none'] < 0.85)
-        
-        n_hard_nones = hard_none_mask.sum()
-        logger.info(f"Injecting {n_hard_nones} 'Hard Nones' (P(none) < 0.85) as 'base' into training set.")
-        
-        # Relabel them to 'base' for the refiner
-        df.loc[hard_none_mask, LABEL_COL] = "base"
-    else:
-        logger.warning(f"Could not find {STAGE1_RESULTS_PATH}. Cannot inject Hard Nones.")
-
-    # 4. Filter for only 3-class training data (drop the 'easy' nones)
+    # 3. Filter for only 3-class training data (exclude none; no Hard Nones injection)
     train_df = df[df[LABEL_COL].isin(["alt", "base", "both"])].copy()
-    logger.info(f"Final Refiner training shape after dropping easy nones: {len(train_df)}")
+    logger.info(f"Refiner training shape (alt/base/both only, none excluded): {len(train_df)}")
 
     # 5. Feature Engineering
     logger.info("Engineering features ...")

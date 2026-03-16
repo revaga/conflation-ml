@@ -359,7 +359,7 @@ def main():
     parser = argparse.ArgumentParser(description="Label phase1 records with SLM attribute winners.")
     parser.add_argument("--output", type=str, default=None, help="Output parquet path (default: data/phase3_slm_labeled.parquet)")
     parser.add_argument("--provider", type=str, default=None, choices=["local", "huggingface", "ollama"], help="SLM provider (overrides env)")
-    parser.add_argument("--model", type=str, default=None, help="Model name (e.g. gpt-4o-mini)")
+    parser.add_argument("--model", type=str, default=None, help="Model name (e.g. gemma3-4b)")
     args = parser.parse_args()
     if args.output is not None:
         OUTPUT_PATH = Path(args.output)

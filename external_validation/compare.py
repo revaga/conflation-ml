@@ -17,9 +17,9 @@ if str(_REPO_ROOT) not in sys.path:
 from rapidfuzz import fuzz
 
 try:
-    from scripts.normalization import standardize_phone, normalize_website
+    from scripts.normalization import standardize_phone, normalize_website, normalize_address_json_full
 except ImportError:
-    from normalization import standardize_phone, normalize_website  # type: ignore
+    from normalization import standardize_phone, normalize_website, normalize_address_json_full  # type: ignore
 
 # Attributes we compare (align with labels.ATTR_ATTRS: name, phone, web, address, category)
 # We do not assign "truth" for name here; plan focuses on phone, web, category, address.
@@ -88,6 +88,7 @@ def _compare_phone(real: str, base: str, alt: str) -> Tuple[str, str]:
 
 
 def _compare_web(real: str, base: str, alt: str) -> Tuple[str, str]:
+    """Compare using normalized URLs. Exact match wins; then fuzzy match so same/similar URLs (e.g. redwing vs redwingshoes same path) are base/alt/both, not real."""
     r, b, a = _norm_web(real), _norm_web(base), _norm_web(alt)
     if not r:
         if b and a:
@@ -98,6 +99,13 @@ def _compare_web(real: str, base: str, alt: str) -> Tuple[str, str]:
     if r == b:
         return ("base", base if isinstance(base, str) else str(base))
     if r == a:
+        return ("alt", alt if isinstance(alt, str) else str(alt))
+    # Fuzzy match: same or very similar URL (e.g. stores.redwingshoes.com vs stores.redwing.com same path) -> not "real"
+    if _fuzzy_match(r, b) and _fuzzy_match(r, a):
+        return ("both", base or alt if isinstance(base, str) else str(base) if base else str(alt))
+    if _fuzzy_match(r, b):
+        return ("base", base if isinstance(base, str) else str(base))
+    if _fuzzy_match(r, a):
         return ("alt", alt if isinstance(alt, str) else str(alt))
     return ("real", real if isinstance(real, str) else str(real))
 
@@ -118,7 +126,10 @@ def _compare_category(real: str, base: str, alt: str) -> Tuple[str, str]:
 
 
 def _compare_address(real: str, base: str, alt: str) -> Tuple[str, str]:
-    r, b, a = _norm_str(real), _norm_str(base), _norm_str(alt)
+    """Compare using full normalized addresses (real=Google, base/alt=record). All three are normalized for comparison."""
+    r = normalize_address_json_full(real) or ""
+    b = normalize_address_json_full(base) or ""
+    a = normalize_address_json_full(alt) or ""
     if not r:
         if b and a:
             return ("both" if b == a else "base", base if b == a else (base or alt))
@@ -135,6 +146,7 @@ def _compare_address(real: str, base: str, alt: str) -> Tuple[str, str]:
 def compare_row(
     row: Any,
     real: Dict[str, str],
+    allow_fallback: bool = True,
 ) -> Dict[str, str]:
     """
     Compare real-world dict to base and alternate (conflated) from a dataframe row.
@@ -142,6 +154,9 @@ def compare_row(
     norm_base_addr, norm_conflated_addr; and for category we use base_categories/categories
     primary if available, else norm-style. We expect _base_category and _category if from
     feature engineering; otherwise we compare raw.
+
+    When allow_fallback is False, attributes with no real-world value get winner "no_data"
+    and value "" instead of falling back to base/alt/both.
     """
     # Base/alt values from row (conflated = alt)
     def _base_phone():
@@ -151,18 +166,28 @@ def compare_row(
         return _norm_phone(row.get("norm_conflated_phone"))
 
     def _base_web():
-        return _norm_web(_first_url(row.get("base_websites")))
+        raw = _first_url(row.get("base_websites")) or str(row.get("norm_base_website") or "").strip()
+        return _norm_web(raw)
 
     def _alt_web():
-        return _norm_web(_first_url(row.get("websites")))
+        raw = _first_url(row.get("websites")) or str(row.get("norm_conflated_website") or "").strip()
+        return _norm_web(raw)
 
     def _base_addr():
-        v = row.get("norm_base_addr")
+        v = row.get("norm_base_addr") or row.get("base_addresses")
         return _norm_str(v) if v is not None else ""
 
     def _alt_addr():
-        v = row.get("norm_conflated_addr")
+        v = row.get("norm_conflated_addr") or row.get("addresses")
         return _norm_str(v) if v is not None else ""
+
+    def _base_addr_full():
+        """Full normalized address from base (for address winner comparison)."""
+        return normalize_address_json_full(row.get("norm_base_addr") or row.get("base_addresses") or "") or ""
+
+    def _alt_addr_full():
+        """Full normalized address from alt (for address winner comparison)."""
+        return normalize_address_json_full(row.get("norm_conflated_addr") or row.get("addresses") or "") or ""
 
     def _base_cat():
         if "_base_category" in row and row.get("_base_category") not in (None, ""):
@@ -203,10 +228,12 @@ def compare_row(
         return v if isinstance(v, str) and v else (str(v) if v else "")
 
     def _base_web_val():
-        return _first_url(row.get("base_websites")) or ""
+        val = _first_url(row.get("base_websites")) or str(row.get("norm_base_website") or "").strip()
+        return val or ""
 
     def _alt_web_val():
-        return _first_url(row.get("websites")) or ""
+        val = _first_url(row.get("websites")) or str(row.get("norm_conflated_website") or "").strip()
+        return val or ""
 
     def _base_addr_val():
         v = row.get("norm_base_addr")
@@ -261,14 +288,27 @@ def compare_row(
     out["truth_category_winner"] = _str(w)
     out["truth_category_value"] = _str(v) or _str(real.get("category", ""))
 
-    # Address
+    # Address: use full normalized base/alt and normalize Google address for comparison
     w, v = _compare_address(
         real.get("address", ""),
-        _base_addr_val() if _base_addr() else "",
-        _alt_addr_val() if _alt_addr() else "",
+        _base_addr_full() if _base_addr() else "",
+        _alt_addr_full() if _alt_addr() else "",
     )
     out["truth_address_winner"] = _str(w)
     out["truth_address_value"] = _str(v) or _str(real.get("address", ""))
+
+    if not allow_fallback:
+        attrs = [
+            ("phone", "truth_phone_winner", "truth_phone_value"),
+            ("web", "truth_web_winner", "truth_web_value"),
+            ("category", "truth_category_winner", "truth_category_value"),
+            ("address", "truth_address_winner", "truth_address_value"),
+        ]
+        for key, winner_col, value_col in attrs:
+            raw = real.get(key, "")
+            if raw is None or (isinstance(raw, str) and not raw.strip()):
+                out[winner_col] = "no_data"
+                out[value_col] = ""
 
     return out
 

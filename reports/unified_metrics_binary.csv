@@ -1,0 +1,8 @@
+Method,Variant,accuracy,f1,n
+XGBoost binary,raw,0.43,0.6013986013986014,200
+Random Forest binary,raw,0.56,0.10204081632653061,200
+XGBoost per-attr ensemble (binary),raw,0.565,0.04395604395604396,200
+SLM (Gemma3 4B),raw,0.57,0.0,200
+SLM (Kimi),raw,0.655,0.5766871165644172,200
+SLM (GPT-4o mini),raw,0.57,0.0,200
+SLM Recalculated,recalculated,0.45,0.6071428571428571,200

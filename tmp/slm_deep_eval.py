@@ -39,21 +39,26 @@ def main():
     
     results = []
 
-    # 2. Recalculated SLM (GPT-4o mini)
+    # 2. Recalculated SLM (Gemma3 4B)
     slm_base = pd.read_parquet(SLM_BASE_PATH)
     slm_base["recalc_pred"] = slm_base.apply(lambda r: recalculate_3class_label(r), axis=1)
     
     merged_recalc = golden.merge(slm_base[["id", "recalc_pred"]], on="id")
-    results.append(get_metrics(merged_recalc["truth"], merged_recalc["recalc_pred"], "SLM Recalculated (GPT-4o mini)"))
+    results.append(get_metrics(merged_recalc["truth"], merged_recalc["recalc_pred"], "SLM Recalculated (Gemma3 4B)"))
 
-    # 3. Base SLM (GPT-4o mini) - Raw golden_label
+    # 3. Base SLM (Gemma3 4B) - Raw golden_label
     # golden_label in slm_base tends to be 'base', 'alt', 'abstain'
     slm_base["raw_pred"] = slm_base["golden_label"].apply(map_3class)
     merged_base = golden.merge(slm_base[["id", "raw_pred"]], on="id")
-    results.append(get_metrics(merged_base["truth"], merged_base["raw_pred"], "SLM Raw (GPT-4o mini)"))
+    results.append(get_metrics(merged_base["truth"], merged_base["raw_pred"], "SLM Raw (Gemma3 4B)"))
 
-    # 4. Kimi SLM - Raw golden_label
+    # 4. Kimi SLM - Recalculated from attr_*_winner
     slm_kimi = pd.read_parquet(SLM_KIMI_PATH)
+    slm_kimi["recalc_pred"] = slm_kimi.apply(lambda r: recalculate_3class_label(r), axis=1)
+    merged_kimi_recalc = golden.merge(slm_kimi[["id", "recalc_pred"]], on="id")
+    results.append(get_metrics(merged_kimi_recalc["truth"], merged_kimi_recalc["recalc_pred"], "SLM Recalculated (Kimi)"))
+
+    # 5. Kimi SLM - Raw golden_label
     slm_kimi["raw_pred"] = slm_kimi["golden_label"].apply(map_3class)
     merged_kimi = golden.merge(slm_kimi[["id", "raw_pred"]], on="id")
     results.append(get_metrics(merged_kimi["truth"], merged_kimi["raw_pred"], "SLM Raw (Kimi)"))

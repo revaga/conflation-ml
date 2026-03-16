@@ -113,10 +113,14 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=None, help="Process only first N rows")
     parser.add_argument("--input", type=str, default=None, help="Input parquet path")
     parser.add_argument("--output", type=str, default=None, help="Output parquet path")
+    parser.add_argument("--no-fallback", action="store_true", help="Use no_data when real-world value missing (no base/alt fallback)")
     args = parser.parse_args()
 
     input_path = Path(args.input) if args.input else GOLDEN_PATH
-    output_path = Path(args.output) if args.output else OUTPUT_PATH
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        output_path = DATA_DIR / ("ground_truth_scrape_no_fallback.parquet" if args.no_fallback else "ground_truth_scrape_golden.parquet")
 
     if not input_path.exists():
         logger.error("Input not found: %s", input_path)
@@ -164,7 +168,7 @@ def main() -> None:
         real = merge_real(scraped, search_result)
 
         # (d) Compare and set truth columns
-        cmp = compare_row(row, real)
+        cmp = compare_row(row, real, allow_fallback=not args.no_fallback)
         for k, v in cmp.items():
             df.at[idx, k] = v
         df.at[idx, "truth_source"] = "scrape_and_search"

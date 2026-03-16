@@ -83,3 +83,63 @@ def recalculate_3class_label(row: pd.Series, suffix: str = "") -> str:
     """Shortcut to get 3-class label directly from attribute winners."""
     l4 = recalculate_4class_label(row, suffix)
     return fourclass_to_threeclass(l4)
+
+
+def _normalize_attr_for_2class(val):
+    """Normalize attr winner for 2-class: return 'base'|'alt'|'both'|'none' or None if invalid."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return None
+    v = str(val).strip().lower()
+    if v in ("base", "alt", "both", "none"):
+        return v
+    if v in ("a", "match", "m"):
+        return "alt"
+    if v == "b":
+        return "base"
+    if v == "t":
+        return "both"
+    return None
+
+
+def row_to_2class(row: pd.Series, suffix: str = "") -> str:
+    """
+    Decide 'base' or 'alt' from attr_*_winner columns (same rule as golden 2class_testlabels).
+    Majority of base/alt wins; ties broken by address+name, then phone, name, address.
+    Use this for training binary models that will be evaluated against golden_dataset_200
+    2class_testlabels.
+    """
+    n_base = 0
+    n_alt = 0
+    for attr in ATTR_ATTRS:
+        col = f"attr_{attr}_winner{suffix}"
+        w = _normalize_attr_for_2class(row.get(col))
+        if w == "base":
+            n_base += 1
+        elif w == "alt":
+            n_alt += 1
+
+    if n_base > n_alt:
+        return "base"
+    if n_alt > n_base:
+        return "alt"
+
+    addr = _normalize_attr_for_2class(row.get(f"attr_address_winner{suffix}"))
+    name = _normalize_attr_for_2class(row.get(f"attr_name_winner{suffix}"))
+    if addr == "base" and name == "base":
+        return "base"
+    if addr == "alt" and name == "alt":
+        return "alt"
+    phone = _normalize_attr_for_2class(row.get(f"attr_phone_winner{suffix}"))
+    if phone == "base":
+        return "base"
+    if phone == "alt":
+        return "alt"
+    if name == "base":
+        return "base"
+    if name == "alt":
+        return "alt"
+    if addr == "base":
+        return "base"
+    if addr == "alt":
+        return "alt"
+    return "base"

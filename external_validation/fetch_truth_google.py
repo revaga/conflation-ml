@@ -96,10 +96,14 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Print queries only, no API calls")
     parser.add_argument("--input", type=str, default=None, help="Input parquet path (default: data/golden_dataset_200.parquet)")
     parser.add_argument("--output", type=str, default=None, help="Output parquet path (default: data/ground_truth_google_golden.parquet)")
+    parser.add_argument("--no-fallback", action="store_true", help="Use no_data when real-world value missing (no base/alt fallback)")
     args = parser.parse_args()
 
     input_path = Path(args.input) if args.input else GOLDEN_PATH
-    output_path = Path(args.output) if args.output else OUTPUT_PATH
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        output_path = DATA_DIR / ("ground_truth_google_no_fallback.parquet" if args.no_fallback else "ground_truth_google_golden.parquet")
 
     if not input_path.exists():
         logger.error("Input not found: %s", input_path)
@@ -134,7 +138,7 @@ def main() -> None:
             logger.info("Query: %s | %s", name, addr)
             continue
         real = fetch_real_data(name, addr, api_key)
-        cmp = compare_row(row, real)
+        cmp = compare_row(row, real, allow_fallback=not args.no_fallback)
         for k, v in cmp.items():
             df.at[idx, k] = v
         df.at[idx, "truth_source"] = "google_places"

@@ -1,0 +1,7 @@
+Method,n,phone_acc,web_acc,address_acc,category_acc
+Google API,200,9.5,16.5,22.5,37.5
+Scrape + search,200,27.0,59.5,68.5,57.0
+SLM (Gemma3 4B),200,20.0,69.0,40.0,51.5
+SLM (Kimi),200,45.5,57.5,70.5,71.5
+SLM (GPT-4o mini),200,34.5,48.0,68.5,65.5
+XGBoost per-attr ensemble,200,11.5,70.5,45.5,51.5

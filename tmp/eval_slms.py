@@ -45,5 +45,5 @@ def evaluate(slm_path, golden_path, name):
     print(merged["golden_label"].value_counts())
 
 if __name__ == "__main__":
-    evaluate("data/phase3_slm_labeled.parquet", "data/golden_dataset_200.parquet", "Base SLM (GPT-4o mini)")
+    evaluate("data/phase3_slm_labeled.parquet", "data/golden_dataset_200.parquet", "Base SLM (Gemma3 4B)")
     evaluate("data/phase3_slm_labeledkimi.parquet", "data/golden_dataset_200.parquet", "Kimi SLM")

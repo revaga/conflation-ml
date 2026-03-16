@@ -733,13 +733,18 @@ def main():
     test_df.loc[accepted_mask & ~is_both, "_final_pred"] = "match"
     test_df.loc[accepted_mask & is_both, "_final_pred"] = "both"
 
-    # 3-class evaluation
-    truth3 = test_df["_truth3"].str.strip().str.lower()
+    # 3-class evaluation (exclude rows where golden 3-class is "none")
+    truth3 = test_df["_truth3"].astype(str).str.strip().str.lower()
     pred3 = test_df["_final_pred"].str.strip().str.lower()
+    valid_3class = ("match", "both", "base")
+    mask_3 = truth3.isin(valid_3class)
+    test_df_3 = test_df.loc[mask_3]
+    truth3 = truth3[mask_3]
+    pred3 = pred3[mask_3]
 
     correct_3class = (truth3 == pred3).sum()
-    total = len(test_df)
-    acc_3class = correct_3class / total
+    total = len(test_df_3)
+    acc_3class = correct_3class / total if total else 0.0
 
     print(f"  3-class accuracy: {acc_3class:.4%} ({correct_3class}/{total})")
     print(f"\n  3-class confusion matrix (rows=truth, cols=pred):")

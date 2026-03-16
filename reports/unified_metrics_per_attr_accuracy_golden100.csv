@@ -1,0 +1,6 @@
+Method,n,phone_acc,web_acc,address_acc,category_acc
+Google API,100,18.0,12.0,38.0,39.0
+Scrape + search,100,28.0,57.0,54.0,58.0
+SLM (GPT-4o mini),100,15.0,69.0,33.0,46.0
+SLM (Kimi),100,53.0,60.0,58.0,69.0
+SLM (GPT-4o mini alt),100,42.0,47.0,54.0,68.0
